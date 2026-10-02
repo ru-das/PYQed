@@ -1,0 +1,29 @@
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useColorScheme } from 'react-native';
+import { useThemeColors } from '../src/theme';
+
+export default function RootLayout() {
+  const scheme = useColorScheme();
+  const colors = useThemeColors();
+
+  return (
+    <>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.text,
+          headerTitleStyle: { fontWeight: '700' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="dev" options={{ title: 'Test page' }} />
+        <Stack.Screen name="subject/[id]" options={{ title: 'Subject' }} />
+        <Stack.Screen name="subject/edit" options={{ title: 'Subject' }} />
+      </Stack>
+    </>
+  );
+}

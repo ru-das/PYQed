@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+app/node_modules/
+
+# Expo
+.expo/
+app/.expo/
+dist/
+app/dist/
+
+# Native builds (EAS)
+android/
+ios/
+app/android/
+app/ios/
+*.apk
+*.ipa
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Planning notes (local only)
+AGENTS.md
+SPEC.md
+ROADMAP.md
+HANDOFF_NOTES.md
+DEV_POST_DRAFT.md
+agents-old.md
