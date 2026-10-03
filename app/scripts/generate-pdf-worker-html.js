@@ -95,20 +95,7 @@ const clientLogic = `
         }
       }
 
-      var nonSpaceChars = rawText.replace(/\\s/g, '').length;
-      if (nonSpaceChars > 200) {
-        sendToApp({
-          type: 'pageResult',
-          pageNumber: pageNumber,
-          result: {
-            type: 'text',
-            text: rawText.trim()
-          }
-        });
-        return;
-      }
-
-      // 2. Scanned / image page fallback (render to canvas ~1600px long edge, JPEG 0.8)
+      // Render to canvas ~1600px long edge, JPEG 0.8
       var unscaledViewport = page.getViewport({ scale: 1.0 });
       var origWidth = unscaledViewport.width;
       var origHeight = unscaledViewport.height;
@@ -136,6 +123,20 @@ const clientLogic = `
       var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       var commaIdx = dataUrl.indexOf(',');
       var imgBase64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
+
+      var nonSpaceChars = rawText.replace(/\s/g, '').length;
+      if (nonSpaceChars > 200) {
+        sendToApp({
+          type: 'pageResult',
+          pageNumber: pageNumber,
+          result: {
+            type: 'text',
+            text: rawText.trim(),
+            base64: imgBase64
+          }
+        });
+        return;
+      }
 
       sendToApp({
         type: 'pageResult',

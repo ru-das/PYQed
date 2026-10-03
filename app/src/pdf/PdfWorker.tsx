@@ -11,7 +11,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { PDF_WORKER_HTML } from './pdfWorkerHtml';
 
 export type PageResult =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; base64?: string }
   | { type: 'image'; base64: string };
 
 export type PdfWorkerHandle = {

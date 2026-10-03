@@ -3,6 +3,7 @@
 //   <documentDirectory>/pyqed/subjects/{id}.json   full subject
 //   <documentDirectory>/pyqed/subjects/{id}/       page images (later milestones)
 import { Directory, File, Paths } from 'expo-file-system';
+import { writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import { migrate, newId, summarize, Subject, SubjectMeta, CURRENT_VERSION } from '../logic/subject';
 
 export * from '../logic/subject';
@@ -65,4 +66,30 @@ export async function deleteSubject(id: string): Promise<void> {
   const list = (await listSubjects()).filter((m) => m.id !== id);
   const idx = indexFile();
   if (idx.exists) idx.write(JSON.stringify(list));
+}
+
+export async function savePageImage(
+  subjectId: string,
+  paperId: string,
+  pageNum: number,
+  base64: string,
+): Promise<string> {
+  const dir = new Directory(subjectsDir(), subjectId, 'pages');
+  if (!dir.exists) {
+    dir.create({ intermediates: true, idempotent: true });
+  }
+  const f = new File(dir, `${paperId}_${pageNum}.jpg`);
+  const cleanBase64 = base64.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+  await writeAsStringAsync(f.uri, cleanBase64, { encoding: EncodingType.Base64 });
+  return f.uri;
+}
+
+export function pageImageUri(
+  subjectId: string,
+  paperId: string,
+  pageNum: number,
+): string {
+  const dir = new Directory(subjectsDir(), subjectId, 'pages');
+  const f = new File(dir, `${paperId}_${pageNum}.jpg`);
+  return f.uri;
 }
