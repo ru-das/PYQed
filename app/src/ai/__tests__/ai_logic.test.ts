@@ -5,8 +5,10 @@ import {
   deriveQuestionType,
   checkNeedsReview,
   validatePageQuestions,
+  validateSyllabusStructure,
 } from '../validators';
-import { pageToQuestionsPrompt } from '../prompts';
+import { pageToQuestionsPrompt, syllabusToStructurePrompt } from '../prompts';
+import { mergeSyllabusSubjects } from '../../logic/syllabus';
 
 describe('extractJSON', () => {
   it('extracts plain JSON object', () => {
@@ -139,3 +141,197 @@ describe('pageToQuestionsPrompt', () => {
     assert.ok(!prompt.includes('The previous page ended with'));
   });
 });
+
+describe('syllabusToStructurePrompt', () => {
+  it('contains essential instructions for syllabus extraction', () => {
+    const prompt = syllabusToStructurePrompt();
+    assert.ok(prompt.includes('university syllabus'));
+    assert.ok(prompt.includes('subjects'));
+    assert.ok(prompt.includes('units'));
+    assert.ok(prompt.includes('topics'));
+    assert.ok(prompt.includes('Skip marks distribution tables'));
+  });
+});
+
+describe('validateSyllabusStructure', () => {
+  it('validates a correct syllabus structure response', () => {
+    const payload = {
+      subjects: [
+        {
+          name: 'Data Structures',
+          code: 'CS201',
+          units: [
+            {
+              name: 'Unit 1: Arrays',
+              topics: [
+                {
+                  name: 'Linear Arrays',
+                  details: 'Traversal, Insertion, Deletion',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const res = validateSyllabusStructure(payload);
+    assert.strictEqual(res.ok, true);
+    if (res.ok) {
+      assert.strictEqual(res.data.subjects.length, 1);
+      assert.strictEqual(res.data.subjects[0].name, 'Data Structures');
+      assert.strictEqual(res.data.subjects[0].code, 'CS201');
+      assert.strictEqual(res.data.subjects[0].units.length, 1);
+      assert.strictEqual(res.data.subjects[0].units[0].topics[0].name, 'Linear Arrays');
+      assert.strictEqual(res.data.subjects[0].units[0].topics[0].details, 'Traversal, Insertion, Deletion');
+    }
+  });
+
+  it('rejects payload missing subjects array', () => {
+    const res = validateSyllabusStructure({ items: [] });
+    assert.strictEqual(res.ok, false);
+  });
+
+  it('rejects empty subjects array', () => {
+    const res = validateSyllabusStructure({ subjects: [] });
+    assert.strictEqual(res.ok, false);
+  });
+
+  it('rejects subject without a name', () => {
+    const res = validateSyllabusStructure({ subjects: [{ name: '  ', units: [] }] });
+    assert.strictEqual(res.ok, false);
+  });
+
+  it('skips empty unit names and empty topic names gracefully', () => {
+    const payload = {
+      subjects: [
+        {
+          name: 'Algorithms',
+          code: null,
+          units: [
+            { name: '   ', topics: [] },
+            {
+              name: 'Unit 1',
+              topics: [
+                { name: '   ', details: 'Empty' },
+                { name: 'Sorting', details: 'Merge sort' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const res = validateSyllabusStructure(payload);
+    assert.strictEqual(res.ok, true);
+    if (res.ok) {
+      assert.strictEqual(res.data.subjects[0].units.length, 1);
+      assert.strictEqual(res.data.subjects[0].units[0].name, 'Unit 1');
+      assert.strictEqual(res.data.subjects[0].units[0].topics.length, 1);
+      assert.strictEqual(res.data.subjects[0].units[0].topics[0].name, 'Sorting');
+    }
+  });
+
+  it('rejects if more than 30 subjects', () => {
+    const subjects = Array.from({ length: 31 }, (_, i) => ({
+      name: `Subject ${i}`,
+      units: [],
+    }));
+    const res = validateSyllabusStructure({ subjects });
+    assert.strictEqual(res.ok, false);
+    if (!res.ok) {
+      assert.ok(res.error.includes('Too many subjects'));
+    }
+  });
+});
+
+describe('mergeSyllabusSubjects', () => {
+  it('merges subjects with the same name across pages', () => {
+    const page1 = [
+      {
+        name: 'Database Management',
+        code: 'CS301',
+        units: [
+          {
+            name: 'Unit 1: ER Model',
+            topics: [{ name: 'ER Diagrams', details: 'Entity, Attributes' }],
+          },
+        ],
+      },
+    ];
+
+    const page2 = [
+      {
+        name: 'database management', // case-insensitive match
+        code: null,
+        units: [
+          {
+            name: 'Unit 2: Relational Model',
+            topics: [{ name: 'Relational Algebra', details: 'Select, Project' }],
+          },
+        ],
+      },
+    ];
+
+    const merged = mergeSyllabusSubjects([page1, page2]);
+    assert.strictEqual(merged.length, 1);
+    assert.strictEqual(merged[0].name, 'Database Management');
+    assert.strictEqual(merged[0].code, 'CS301');
+    assert.strictEqual(merged[0].units.length, 2);
+    assert.strictEqual(merged[0].units[0].name, 'Unit 1: ER Model');
+    assert.strictEqual(merged[0].units[1].name, 'Unit 2: Relational Model');
+  });
+
+  it('combines topics in units with the same name and avoids duplicates', () => {
+    const batch1 = [
+      {
+        name: 'OS',
+        code: 'CS401',
+        units: [
+          {
+            name: 'Processes',
+            topics: [
+              { name: 'Threads', details: 'User vs kernel' },
+              { name: 'Process Scheduling' },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const batch2 = [
+      {
+        name: 'OS',
+        code: null,
+        units: [
+          {
+            name: 'processes',
+            topics: [
+              { name: 'threads', details: 'User vs kernel threads detail' }, // duplicate name, details should update if richer
+              { name: 'Deadlocks', details: 'Banker algorithm' },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const merged = mergeSyllabusSubjects([batch1, batch2]);
+    assert.strictEqual(merged.length, 1);
+    assert.strictEqual(merged[0].units.length, 1);
+    assert.strictEqual(merged[0].units[0].topics.length, 3);
+    assert.strictEqual(merged[0].units[0].topics[0].name, 'Threads');
+    assert.strictEqual(merged[0].units[0].topics[1].name, 'Process Scheduling');
+    assert.strictEqual(merged[0].units[0].topics[2].name, 'Deadlocks');
+  });
+
+  it('keeps distinct subjects separate', () => {
+    const batch1 = [{ name: 'Compiler Design', code: 'CS501', units: [] }];
+    const batch2 = [{ name: 'Computer Networks', code: 'CS502', units: [] }];
+
+    const merged = mergeSyllabusSubjects([batch1, batch2]);
+    assert.strictEqual(merged.length, 2);
+    assert.strictEqual(merged[0].name, 'Compiler Design');
+    assert.strictEqual(merged[1].name, 'Computer Networks');
+  });
+});
+
+

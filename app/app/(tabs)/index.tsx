@@ -45,14 +45,24 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
         />
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: colors.accent }]}
-          onPress={() => router.push('/subject/edit')}
-          accessibilityLabel="Add subject"
-        >
-          <Ionicons name="add" size={22} color={colors.accentText} />
-          <Text style={[styles.addBtnText, { color: colors.accentText }]}>Add subject</Text>
-        </TouchableOpacity>
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.importBtn, { borderColor: colors.accent, backgroundColor: colors.card }]}
+            onPress={() => router.push('/syllabus-import')}
+            accessibilityLabel="Import syllabus"
+          >
+            <Ionicons name="sparkles" size={18} color={colors.accent} />
+            <Text style={[styles.importBtnText, { color: colors.accent }]}>Import syllabus</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: colors.accent, flex: 1 }]}
+            onPress={() => router.push('/subject/edit')}
+            accessibilityLabel="Add subject"
+          >
+            <Ionicons name="add" size={20} color={colors.accentText} />
+            <Text style={[styles.addBtnText, { color: colors.accentText }]}>Add subject</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -75,25 +85,24 @@ export default function HomeScreen() {
         </Text>
 
         <View style={styles.cardContainer}>
-          <View
+          <TouchableOpacity
             style={[
               styles.optionCard,
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
+            onPress={() => router.push('/syllabus-import')}
+            accessibilityLabel="Import a syllabus"
           >
             <View style={styles.optionHeader}>
               <Ionicons name="sparkles" size={20} color={colors.accent} />
               <Text style={[styles.optionTitle, { color: colors.text }]}>
                 1. Import a syllabus
               </Text>
-              <Text style={[styles.codeChip, { backgroundColor: colors.chip, color: colors.textSecondary }]}>
-                Coming soon
-              </Text>
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
-              Pick a syllabus PDF or photo. Gemma 4 automatically detects subjects, units, and topics.
+              Pick a syllabus PDF, photo, or paste text. Gemma 4 automatically detects subjects, units, and topics.
             </Text>
-          </View>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={[
@@ -127,6 +136,25 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.chip,
     overflow: 'hidden',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  importBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    minHeight: 48,
+    borderRadius: BorderRadius.button,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+  },
+  importBtnText: {
+    fontSize: FontSize.body - 1,
+    fontWeight: '700',
   },
   addBtn: {
     flexDirection: 'row',

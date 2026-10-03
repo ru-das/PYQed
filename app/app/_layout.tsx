@@ -24,6 +24,7 @@ export default function RootLayout() {
         <Stack.Screen name="dev-pdf" options={{ title: 'PDF Worker Test' }} />
         <Stack.Screen name="subject/[id]" options={{ title: 'Subject' }} />
         <Stack.Screen name="subject/edit" options={{ title: 'Subject' }} />
+        <Stack.Screen name="syllabus-import" options={{ title: 'Import Syllabus' }} />
       </Stack>
     </>
   );

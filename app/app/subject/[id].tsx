@@ -60,11 +60,17 @@ export default function SubjectScreen() {
 
       {tab === 'Topics' &&
         (subject.units.length === 0
-          ? empty('list-outline', 'No syllabus yet', 'Add units and topics manually, or import a syllabus (coming soon).',
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]}
-                onPress={() => router.push({ pathname: '/subject/edit', params: { id: subject.id } })}>
-                <Text style={{ color: colors.accentText, fontWeight: '700' }}>Add units</Text>
-              </TouchableOpacity>)
+          ? empty('list-outline', 'No syllabus yet', 'Add units and topics manually, or import a syllabus using Gemma 4.',
+              <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                <TouchableOpacity style={[styles.btn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                  onPress={() => router.push('/syllabus-import')}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Import syllabus</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]}
+                  onPress={() => router.push({ pathname: '/subject/edit', params: { id: subject.id } })}>
+                  <Text style={{ color: colors.accentText, fontWeight: '700' }}>Add units</Text>
+                </TouchableOpacity>
+              </View>)
           : subject.units.map((u) => (
               <View key={u.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.h3, { color: colors.text }]}>{u.name}</Text>

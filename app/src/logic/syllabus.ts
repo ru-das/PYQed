@@ -1,0 +1,88 @@
+/**
+ * Pure syllabus logic and merging (AGENTS.md §8.1, §9, §13).
+ * No React Native dependencies — runs in pure Node/tests.
+ */
+
+import {
+  RawSyllabusSubject,
+  RawSyllabusUnit,
+  RawSyllabusTopic,
+} from '../ai/validators';
+
+/**
+ * Merges multiple sets of syllabus subjects by normalized subject name.
+ * Combines units with the same normalized name, and prevents duplicate topics.
+ */
+export function mergeSyllabusSubjects(
+  subjectBatches: RawSyllabusSubject[][],
+): RawSyllabusSubject[] {
+  const mergedMap = new Map<string, RawSyllabusSubject>();
+
+  for (const batch of subjectBatches) {
+    for (const sub of batch) {
+      const subKey = sub.name.trim().toLowerCase();
+      if (!subKey) continue;
+
+      if (!mergedMap.has(subKey)) {
+        // Deep copy
+        mergedMap.set(subKey, {
+          name: sub.name.trim(),
+          code: sub.code?.trim() || null,
+          units: sub.units.map((u) => ({
+            name: u.name.trim(),
+            topics: u.topics.map((t) => ({
+              name: t.name.trim(),
+              details: t.details?.trim(),
+            })),
+          })),
+        });
+      } else {
+        const existing = mergedMap.get(subKey)!;
+        if (!existing.code && sub.code) {
+          existing.code = sub.code.trim();
+        }
+
+        // Merge units
+        for (const unit of sub.units) {
+          const uKey = unit.name.trim().toLowerCase();
+          if (!uKey) continue;
+
+          const existingUnit = existing.units.find(
+            (u) => u.name.trim().toLowerCase() === uKey,
+          );
+
+          if (existingUnit) {
+            // Merge topics into existing unit
+            for (const topic of unit.topics) {
+              const tKey = topic.name.trim().toLowerCase();
+              if (!tKey) continue;
+
+              const existingTopic = existingUnit.topics.find(
+                (t) => t.name.trim().toLowerCase() === tKey,
+              );
+              if (!existingTopic) {
+                existingUnit.topics.push({
+                  name: topic.name.trim(),
+                  details: topic.details?.trim(),
+                });
+              } else if (!existingTopic.details && topic.details) {
+                existingTopic.details = topic.details.trim();
+              }
+            }
+          } else {
+            // Add new unit
+            existing.units.push({
+              name: unit.name.trim(),
+              topics: unit.topics.map((t) => ({
+                name: t.name.trim(),
+                details: t.details?.trim(),
+              })),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(mergedMap.values());
+}

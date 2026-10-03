@@ -167,8 +167,125 @@ function validatePingTest(data: unknown): ValidationResult<{ ok: boolean }> {
   return { ok: false, error: 'Invalid response from model' };
 }
 
+// --- §8.1 Syllabus Structure Types & Validator ---
+
+export type RawSyllabusTopic = {
+  name: string;
+  details?: string;
+};
+
+export type RawSyllabusUnit = {
+  name: string;
+  topics: RawSyllabusTopic[];
+};
+
+export type RawSyllabusSubject = {
+  name: string;
+  code: string | null;
+  units: RawSyllabusUnit[];
+};
+
+export type SyllabusStructureResponse = {
+  subjects: RawSyllabusSubject[];
+};
+
+export function validateSyllabusStructure(
+  data: unknown,
+): ValidationResult<SyllabusStructureResponse> {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'Response root must be a JSON object' };
+  }
+
+  const root = data as Record<string, unknown>;
+
+  if (!Array.isArray(root.subjects)) {
+    return { ok: false, error: 'Response must contain a "subjects" array' };
+  }
+
+  if (root.subjects.length === 0) {
+    return { ok: false, error: 'No subjects found in syllabus' };
+  }
+
+  if (root.subjects.length > 30) {
+    return { ok: false, error: `Too many subjects: ${root.subjects.length} (max 30)` };
+  }
+
+  const subjects: RawSyllabusSubject[] = [];
+
+  for (let i = 0; i < root.subjects.length; i++) {
+    const rawSub = root.subjects[i];
+    if (!rawSub || typeof rawSub !== 'object') {
+      return { ok: false, error: `Subject at index ${i} is not an object` };
+    }
+
+    const s = rawSub as Record<string, unknown>;
+    const name = typeof s.name === 'string' ? s.name.trim().slice(0, 200) : '';
+    if (!name) {
+      return { ok: false, error: `Subject at index ${i} is missing a name` };
+    }
+
+    let code: string | null = null;
+    if (typeof s.code === 'string' && s.code.trim().length > 0) {
+      code = s.code.trim().slice(0, 50);
+    }
+
+    const unitsRaw = Array.isArray(s.units) ? s.units : [];
+    if (unitsRaw.length > 20) {
+      return { ok: false, error: `Subject "${name}" has too many units (max 20)` };
+    }
+
+    const units: RawSyllabusUnit[] = [];
+
+    for (let j = 0; j < unitsRaw.length; j++) {
+      const rawU = unitsRaw[j];
+      if (!rawU || typeof rawU !== 'object') continue;
+
+      const u = rawU as Record<string, unknown>;
+      const uName = typeof u.name === 'string' ? u.name.trim().slice(0, 200) : '';
+      if (!uName) continue; // skip unnamed units
+
+      const topicsRaw = Array.isArray(u.topics) ? u.topics : [];
+      if (topicsRaw.length > 40) {
+        return { ok: false, error: `Unit "${uName}" has too many topics (max 40)` };
+      }
+
+      const topics: RawSyllabusTopic[] = [];
+      for (let k = 0; k < topicsRaw.length; k++) {
+        const rawT = topicsRaw[k];
+        if (!rawT || typeof rawT !== 'object') continue;
+
+        const t = rawT as Record<string, unknown>;
+        const tName = typeof t.name === 'string' ? t.name.trim().slice(0, 300) : '';
+        if (!tName) continue;
+
+        let details: string | undefined = undefined;
+        if (typeof t.details === 'string' && t.details.trim().length > 0) {
+          details = t.details.trim().slice(0, 1000);
+        }
+
+        topics.push({ name: tName, details });
+      }
+
+      units.push({ name: uName, topics });
+    }
+
+    subjects.push({ name, code, units });
+  }
+
+  if (subjects.length === 0) {
+    return { ok: false, error: 'No valid subjects found after parsing' };
+  }
+
+  return {
+    ok: true,
+    data: { subjects },
+  };
+}
+
 /** Registry of validators */
 export const validators: Record<string, (data: unknown) => ValidationResult<any>> = {
   pageQuestions: validatePageQuestions,
+  syllabusStructure: validateSyllabusStructure,
   __test: validatePingTest,
 };
+

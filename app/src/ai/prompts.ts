@@ -51,3 +51,42 @@ Output MUST be valid JSON adhering strictly to this schema:
   ]
 }`;
 }
+
+/**
+ * §8.1 — Syllabus → structure prompt.
+ * Input: syllabus page text or images.
+ * ≤ 6 pages → one call with all content.
+ * > 6 pages → per-page calls, then merge by subject name.
+ */
+export function syllabusToStructurePrompt(): string {
+  return `You are reading a university syllabus document. Extract the academic structure.
+
+Instructions:
+- Copy subject names, unit names, and topic names EXACTLY as written in the document.
+- Do NOT invent subjects, units, or topics that aren't in the syllabus.
+- Skip marks distribution tables, book lists, reference lists, course outcomes (COs/POs), and any non-structural content — UNLESS it's the only structure on the page.
+- If a subject has no explicit unit headings, create one unit per heading block or section.
+- "details" for each topic = the syllabus text describing that topic (brief summary or keywords if lengthy, otherwise empty string).
+- Subject "code" = the course code if printed (e.g. "CS201"), otherwise null.
+
+Output MUST be valid JSON adhering strictly to this schema:
+{
+  "subjects": [
+    {
+      "name": "Data Structures",
+      "code": "CS201",
+      "units": [
+        {
+          "name": "Unit 1: Arrays and Linked Lists",
+          "topics": [
+            {
+              "name": "Singly Linked List",
+              "details": "Creation, insertion, deletion, traversal"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}`;
+}
