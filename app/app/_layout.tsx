@@ -21,6 +21,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="dev" options={{ title: 'Test page' }} />
+        <Stack.Screen name="dev-pdf" options={{ title: 'PDF Worker Test' }} />
         <Stack.Screen name="subject/[id]" options={{ title: 'Subject' }} />
         <Stack.Screen name="subject/edit" options={{ title: 'Subject' }} />
       </Stack>

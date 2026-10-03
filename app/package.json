@@ -5,7 +5,9 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "expo": "~57.0.26",
+    "expo-asset": "~57.0.18",
     "expo-constants": "~57.0.20",
+    "expo-document-picker": "~57.0.3",
     "expo-file-system": "~57.0.7",
     "expo-haptics": "~57.0.3",
     "expo-image-manipulator": "~57.0.20",
@@ -17,10 +19,12 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0"
+    "react-native-screens": "~4.26.0",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "pdfjs-dist": "^3.11.174",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -28,7 +32,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "npx --yes tsx --test src/ai/__tests__/ai_logic.test.ts src/logic/__tests__/store_logic.test.ts"
+    "test": "npx --yes tsx --test src/ai/__tests__/ai_logic.test.ts src/logic/__tests__/store_logic.test.ts src/pdf/__tests__/pdf_worker.test.ts",
+    "generate-pdf-html": "node scripts/generate-pdf-worker-html.js"
   },
   "private": true
 }

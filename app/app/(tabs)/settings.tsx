@@ -471,7 +471,23 @@ export default function SettingsScreen() {
       >
         <Ionicons name="flask-outline" size={20} color={colors.accent} />
         <Text style={[styles.aboutTitle, { color: colors.text, flex: 1, marginBottom: 0 }]}>
-          Developer: Test page
+          Developer: Test page (Gemma 4 AI)
+        </Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      </TouchableOpacity>
+
+      {/* Developer: PDF Worker test (M3) */}
+      <TouchableOpacity
+        style={[
+          styles.aboutCard,
+          { backgroundColor: colors.card, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 44 },
+        ]}
+        onPress={() => router.push('/dev-pdf')}
+        accessibilityLabel="Open PDF worker test page"
+      >
+        <Ionicons name="document-text-outline" size={20} color={colors.accent} />
+        <Text style={[styles.aboutTitle, { color: colors.text, flex: 1, marginBottom: 0 }]}>
+          Developer: PDF Worker test (pdf.js)
         </Text>
         <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
       </TouchableOpacity>
