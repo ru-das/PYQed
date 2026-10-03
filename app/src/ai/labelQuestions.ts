@@ -21,38 +21,42 @@ export type LabelProgress = {
 const CHUNK_SIZE = 25;
 
 /**
- * Build compact topic list string: "TopicID | UnitName | TopicName"
+ * Build compact topic list "T1 | UnitName | TopicName".
+ * The real IDs (timestamp-based, nearly identical to each other) are easy for
+ * the model to garble when copying them back, so the prompt uses short aliases
+ * and code maps them back.
  */
-function buildTopicList(units: Unit[]): string {
+export function buildTopicList(units: Unit[]): { text: string; aliasToId: Map<string, string> } {
   const lines: string[] = [];
+  const aliasToId = new Map<string, string>();
   for (const unit of units) {
     for (const topic of unit.topics) {
-      lines.push(`${topic.id} | ${unit.name} | ${topic.name}`);
+      const alias = `T${aliasToId.size + 1}`;
+      aliasToId.set(alias, topic.id);
+      lines.push(`${alias} | ${unit.name} | ${topic.name}`);
     }
   }
-  return lines.join('\n');
+  return { text: lines.join('\n'), aliasToId };
 }
 
 /**
- * Build question list string: "QuestionID | QuestionText"
+ * Build question list "Q1 | QuestionText" with short aliases (see buildTopicList).
  */
-function buildQuestionList(questions: Question[]): string {
-  return questions
-    .map((q) => `${q.id} | ${q.text.slice(0, 300).replace(/\r?\n/g, ' ')}`)
+export function buildQuestionList(questions: Question[]): { text: string; aliasToId: Map<string, string> } {
+  const aliasToId = new Map<string, string>();
+  const text = questions
+    .map((q, i) => {
+      const alias = `Q${i + 1}`;
+      aliasToId.set(alias, q.id);
+      return `${alias} | ${q.text.slice(0, 300).replace(/\r?\n/g, ' ')}`;
+    })
     .join('\n');
+  return { text, aliasToId };
 }
 
-/**
- * Collect all valid topic IDs from the subject's units.
- */
-function collectTopicIds(units: Unit[]): Set<string> {
-  const ids = new Set<string>();
-  for (const unit of units) {
-    for (const topic of unit.topics) {
-      ids.add(topic.id);
-    }
-  }
-  return ids;
+/** Look up an alias the model returned, tolerating case and stray whitespace. */
+export function resolveAlias(map: Map<string, string>, raw: string | null): string | null {
+  return raw ? map.get(raw.trim().toUpperCase()) ?? null : null;
 }
 
 /**
@@ -85,12 +89,11 @@ export async function labelQuestions(
     return subject.questions;
   }
 
-  const topicList = buildTopicList(subject.units);
-  if (!topicList.trim()) {
+  const topics = buildTopicList(subject.units);
+  if (!topics.text.trim()) {
     return subject.questions;
   }
 
-  const validTopicIds = collectTopicIds(subject.units);
   const targetIdSet = new Set(questionIds);
 
   // Questions to label: must be in target set AND not user-edited
@@ -124,31 +127,33 @@ export async function labelQuestions(
       )} of ${questionsToLabel.length}...`,
     });
 
-    const questionList = buildQuestionList(chunk);
-    const validQIds = new Set(chunk.map((q) => q.id));
+    const questions = buildQuestionList(chunk);
 
     try {
       const res = await generateJSON<TopicLabelsResponse>({
-        prompt: topicLabelsPrompt(topicList, questionList),
+        prompt: topicLabelsPrompt(topics.text, questions.text),
         schemaName: 'topicLabels',
         provider,
         apiKey,
         modelId,
       });
 
-      if (res.ok) {
-        const validated = validateTopicLabels(res.data, validQIds, validTopicIds);
-        if (validated.ok) {
-          for (const item of validated.data.labels) {
-            labelMap.set(item.q, {
-              topicId: item.topic, // null if unknown topic or explicitly null
-              confidence: item.confidence,
-            });
-          }
+      const validated = res.ok ? validateTopicLabels(res.data) : null;
+      if (validated?.ok) {
+        for (const item of validated.data.labels) {
+          const qId = resolveAlias(questions.aliasToId, item.q);
+          if (!qId) continue;
+          labelMap.set(qId, {
+            topicId: resolveAlias(topics.aliasToId, item.topic), // null if unknown or explicitly null
+            confidence: item.confidence,
+          });
         }
+      } else {
+        console.warn('Topic labelling chunk failed:', res.ok ? (validated as any)?.error : (res as any).error);
       }
-    } catch {
+    } catch (e) {
       // Non-fatal: if a chunk fails, those questions remain with their existing topic/unassigned
+      console.warn('Topic labelling chunk threw:', e);
     }
   }
 
