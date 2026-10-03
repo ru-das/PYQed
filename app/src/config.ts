@@ -1,18 +1,17 @@
 /**
- * App-wide configuration constants. AGENTS.md §12.
+ * App-wide configuration constants.
  */
 
 export type Provider = 'aistudio' | 'openrouter';
 
 export const DEFAULT_PROVIDER: Provider = 'aistudio';
 
-// Google AI Studio — Gemma 4 model IDs (AGENTS.md §7)
+// Google AI Studio — Gemma 4 model IDs
 export const DEFAULT_MODEL_AISTUDIO = 'gemma-4-26b-a4b-it';
 export const ALT_MODEL_AISTUDIO = 'gemma-4-31b-it';
 
-// OpenRouter — free Gemma 4 model (AGENTS.md §7)
+// OpenRouter — free Gemma 4 model
 export const DEFAULT_MODEL_OPENROUTER = 'google/gemma-4-26b-a4b-it:free';
-export const ALT_MODEL_OPENROUTER = 'google/gemma-4-31b-it:free';
 
 // Import limits
 export const MAX_PAGES_PER_IMPORT = 30;

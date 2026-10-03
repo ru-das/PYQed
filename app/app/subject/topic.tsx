@@ -1,11 +1,10 @@
 /**
- * Topic view screen (AGENTS.md §10 Screen 5).
- * Shows syllabus details for the topic, then sorted question cards.
- * Default sort: marks (desc), then times asked (desc), then most recent year.
- * Allows "Move to topic", which sets editedByUser = true so AI never overwrites it.
+ * Topic view: syllabus details for the topic, then its questions sorted by
+ * marks, times asked, then most recent year. Questions can be moved, edited or deleted;
+ * any manual change sets editedByUser so AI re-runs never overwrite it.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,17 +13,19 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
+  Alert,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
-import { getSubject, saveSubject, Subject, Question, Unit, Topic } from '../../src/store/subjects';
-import { askedYears, collapseRepeats, defaultSort, timesAsked } from '../../src/logic/ranking';
+import { displayNumber, getSubject, saveSubject, Subject, Question, Unit, Topic } from '../../src/store/subjects';
+import { collapseRepeats, defaultSort, groupIndex } from '../../src/logic/ranking';
+import { QuestionCard } from '../../src/components/QuestionCard';
+import { QuestionEditModal } from '../../src/components/QuestionEditModal';
 
 export default function TopicScreen() {
   const colors = useThemeColors();
-  const router = useRouter();
   const { subjectId, topicId } = useLocalSearchParams<{
     subjectId: string;
     topicId?: string;
@@ -32,13 +33,11 @@ export default function TopicScreen() {
 
   const [subject, setSubject] = useState<Subject | null>(null);
   const [movingQuestion, setMovingQuestion] = useState<Question | null>(null);
-  const [versionsOpenIds, setVersionsOpenIds] = useState<Set<string>>(new Set());
-  const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(new Set());
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
 
   const load = useCallback(async () => {
     if (!subjectId) return;
-    const s = await getSubject(subjectId);
-    setSubject(s);
+    setSubject(await getSubject(subjectId));
   }, [subjectId]);
 
   useFocusEffect(
@@ -47,16 +46,17 @@ export default function TopicScreen() {
     }, [load]),
   );
 
+  const isUnassigned = topicId === 'unassigned' || !topicId;
+
+  const groups = useMemo(() => groupIndex(subject?.questions ?? []), [subject]);
+
   if (!subject) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;
   }
 
-  const isUnassigned = topicId === 'unassigned' || !topicId;
-
   // Find topic and parent unit if assigned
   let currentTopic: Topic | null = null;
   let currentUnit: Unit | null = null;
-
   if (!isUnassigned) {
     for (const u of subject.units) {
       const found = u.topics.find((t) => t.id === topicId);
@@ -68,79 +68,70 @@ export default function TopicScreen() {
     }
   }
 
-  // Filter questions for this topic
-  const rawQuestions = isUnassigned
-    ? subject.questions.filter((q) => q.topicId === null)
-    : subject.questions.filter((q) => q.topicId === topicId);
-
-  // Apply default sort (marks desc, times asked desc, year desc)
+  const rawQuestions = subject.questions.filter((q) => (isUnassigned ? q.topicId === null : q.topicId === topicId));
   const questions = defaultSort(rawQuestions, subject.questions);
+  const title = isUnassigned ? 'Unassigned questions' : currentTopic?.name || 'Topic';
 
-  const title = isUnassigned
-    ? 'Unassigned Questions'
-    : currentTopic?.name || 'Topic Questions';
-
-  const toggleVersions = (id: string) => {
-    setVersionsOpenIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleExpand = (id: string) => {
-    setExpandedQuestionIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleMoveToTopic = async (targetTopicId: string | null, targetUnitId: string | null) => {
-    if (!movingQuestion || !subject) return;
-
-    const targetQId = movingQuestion.id;
-    const updatedQuestions = subject.questions.map((q) => {
-      if (q.id !== targetQId) return q;
-      return {
-        ...q,
-        topicId: targetTopicId,
-        unitId: targetUnitId,
-        editedByUser: true, // User edit wins! AI will never overwrite
-        topicConfidence: null,
-        repeatGroupId: null, // repeat groups are per topic (§8.4)
-      };
-    });
-
-    const updatedSubject: Subject = {
-      ...subject,
-      questions: updatedQuestions,
-    };
-
-    await saveSubject(updatedSubject);
-    setSubject(updatedSubject);
-    setMovingQuestion(null);
+  const update = async (next: Subject) => {
+    await saveSubject(next);
+    setSubject(next);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
+  const handleMoveToTopic = async (targetTopicId: string | null, targetUnitId: string | null) => {
+    if (!movingQuestion) return;
+    const id = movingQuestion.id;
+    setMovingQuestion(null);
+    await update({
+      ...subject,
+      questions: subject.questions.map((q) =>
+        q.id !== id
+          ? q
+          : {
+              ...q,
+              topicId: targetTopicId,
+              unitId: targetUnitId,
+              editedByUser: true, // user edit wins: AI never overwrites
+              topicConfidence: null,
+              repeatGroupId: null, // repeat groups are per topic
+            },
+      ),
+    });
+  };
+
+  const handleSaveEdit = async (updated: Question) => {
+    setEditingQuestion(null);
+    await update({ ...subject, questions: subject.questions.map((q) => (q.id === updated.id ? updated : q)) });
+  };
+
+  const handleDelete = (q: Question) =>
+    Alert.alert('Delete question?', 'This removes it from the subject.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          const { [q.id]: _gone, ...practice } = subject.practice;
+          update({ ...subject, questions: subject.questions.filter((x) => x.id !== q.id), practice });
+        },
+      },
+    ]);
+
+  const openMenu = (q: Question) =>
+    Alert.alert(`${displayNumber(q.number)} options`, undefined, [
+      { text: 'Move to topic', onPress: () => setMovingQuestion(q) },
+      { text: 'Edit', onPress: () => setEditingQuestion(q) },
+      { text: 'Delete', style: 'destructive', onPress: () => handleDelete(q) },
+    ], { cancelable: true });
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen
-        options={{
-          title,
-          headerBackTitle: 'Back',
-        }}
-      />
+      <Stack.Screen options={{ title, headerBackTitle: 'Back' }} />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header Block */}
         <View style={[styles.headerCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {currentUnit && (
-            <Text style={[styles.unitBadgeText, { color: colors.accent }]}>
-              {currentUnit.name}
-            </Text>
+            <Text style={[styles.unitBadgeText, { color: colors.accent }]}>{currentUnit.name}</Text>
           )}
           <Text style={[styles.topicTitle, { color: colors.text }]}>{title}</Text>
           <Text style={[styles.statsLine, { color: colors.textSecondary }]}>
@@ -150,222 +141,44 @@ export default function TopicScreen() {
               : ''}
           </Text>
 
-          {/* Syllabus Details */}
           {currentTopic?.details ? (
             <View style={[styles.detailsBox, { backgroundColor: colors.chip, borderColor: colors.border }]}>
               <View style={styles.detailsHeaderRow}>
                 <Ionicons name="book-outline" size={16} color={colors.accent} />
-                <Text style={[styles.detailsHeader, { color: colors.accent }]}>
-                  Syllabus Details
-                </Text>
+                <Text style={[styles.detailsHeader, { color: colors.accent }]}>Syllabus details</Text>
               </View>
-              <Text style={[styles.detailsText, { color: colors.text }]}>
-                {currentTopic.details}
-              </Text>
+              <Text style={[styles.detailsText, { color: colors.text }]}>{currentTopic.details}</Text>
             </View>
           ) : null}
         </View>
 
-        {/* Questions List */}
         {questions.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="help-circle-outline" size={48} color={colors.textSecondary} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No questions yet</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No questions here</Text>
             <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
               {isUnassigned
-                ? 'All questions have been assigned to syllabus topics.'
-                : 'Questions matching this topic from imported papers will appear here.'}
+                ? 'Every question has a topic.'
+                : 'Questions from imported papers that match this topic will appear here.'}
             </Text>
           </View>
         ) : (
           <View style={{ gap: Spacing.sm }}>
-            <View style={styles.sortHeaderRow}>
-              <Text style={[styles.listHeader, { color: colors.textSecondary }]}>
-                Sorted by Marks, Frequency & Recency
-              </Text>
-              <Text style={[styles.listCount, { color: colors.textSecondary }]}>
-                {questions.length} total
-              </Text>
-            </View>
-
-            {collapseRepeats(questions).map(([q, ...otherVersions]) => {
-              const times = timesAsked(q, subject.questions);
-              const years = askedYears(q, subject.questions);
-              const versionsOpen = versionsOpenIds.has(q.id);
-              const isExpanded = expandedQuestionIds.has(q.id);
-
-              return (
-                <View
-                  key={q.id}
-                  style={[
-                    styles.qCard,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: q.needsReview ? colors.amber : colors.border,
-                    },
-                  ]}
-                >
-                  {/* Card Header Chips */}
-                  <View style={styles.cardHeaderRow}>
-                    <View style={styles.chipsLeft}>
-                      {/* Question Number */}
-                      <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                        <Text style={[styles.badgeText, { color: colors.text }]}>
-                          Q{q.number}
-                        </Text>
-                      </View>
-
-                      {/* Marks Chip */}
-                      {q.marks !== null ? (
-                        <View
-                          style={[
-                            styles.badge,
-                            { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
-                          ]}
-                        >
-                          <Text style={[styles.badgeText, { color: colors.text }]}>
-                            {q.marks} m
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={[styles.badge, { backgroundColor: colors.amberBg }]}>
-                          <Text style={[styles.badgeText, { color: colors.amber }]}>
-                            ? marks
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Question Type */}
-                      <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                        <Text style={[styles.badgeText, { color: colors.textSecondary }]}>
-                          {q.type}
-                        </Text>
-                      </View>
-
-                      {/* Frequency Badge (Asked nX) */}
-                      <View
-                        style={[
-                          styles.badge,
-                          {
-                            backgroundColor: times > 1 ? colors.amberBg : colors.chip,
-                            borderColor: times > 1 ? colors.amber : colors.border,
-                            borderWidth: times > 1 ? 1 : 0,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.badgeText,
-                            { color: times > 1 ? colors.amber : colors.textSecondary },
-                          ]}
-                        >
-                          Asked {times}×{times > 1 && years.length > 0 ? ` (${years.join(', ')})` : ''}
-                        </Text>
-                      </View>
-
-                      {/* Year */}
-                      {q.year ? (
-                        <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                          <Text style={[styles.badgeText, { color: colors.textSecondary }]}>
-                            {q.year}
-                          </Text>
-                        </View>
-                      ) : null}
-
-                      {/* Low Confidence Chip */}
-                      {q.topicConfidence === 'low' && !q.editedByUser && (
-                        <View style={[styles.badge, { backgroundColor: colors.amberBg }]}>
-                          <Ionicons name="alert-circle-outline" size={12} color={colors.amber} />
-                          <Text style={[styles.badgeText, { color: colors.amber, marginLeft: 2 }]}>
-                            Low confidence
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* User Edited Marker */}
-                      {q.editedByUser && (
-                        <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                          <Ionicons name="checkmark-done" size={12} color={colors.accent} />
-                          <Text style={[styles.badgeText, { color: colors.accent, marginLeft: 2 }]}>
-                            Manual
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Move to Topic Button */}
-                    <TouchableOpacity
-                      style={[styles.moveBtn, { borderColor: colors.border }]}
-                      onPress={() => setMovingQuestion(q)}
-                      accessibilityLabel="Move question to another topic"
-                    >
-                      <Ionicons name="folder-open-outline" size={16} color={colors.accent} />
-                      <Text style={[styles.moveBtnText, { color: colors.accent }]}>Move</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Question Text */}
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => toggleExpand(q.id)}
-                    accessibilityLabel="Toggle question details"
-                  >
-                    <Text
-                      style={[styles.qText, { color: colors.text }]}
-                      numberOfLines={isExpanded ? undefined : 3}
-                    >
-                      {q.text}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Footer / Group */}
-                  <View style={styles.cardFooter}>
-                    {q.group ? (
-                      <Text style={[styles.groupLabel, { color: colors.textSecondary }]}>
-                        {q.group}
-                      </Text>
-                    ) : (
-                      <View />
-                    )}
-                    {q.text.length > 120 && (
-                      <TouchableOpacity onPress={() => toggleExpand(q.id)}>
-                        <Text style={[styles.expandText, { color: colors.accent }]}>
-                          {isExpanded ? 'Show less' : 'Show more'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* Other versions from the same repeat group */}
-                  {otherVersions.length > 0 && (
-                    <View style={{ marginTop: Spacing.xs }}>
-                      <TouchableOpacity
-                        onPress={() => toggleVersions(q.id)}
-                        accessibilityLabel="Toggle other versions of this question"
-                      >
-                        <Text style={[styles.expandText, { color: colors.accent }]}>
-                          {versionsOpen
-                            ? 'Hide other versions'
-                            : `Show ${otherVersions.length} other version${otherVersions.length > 1 ? 's' : ''}`}
-                        </Text>
-                      </TouchableOpacity>
-                      {versionsOpen &&
-                        otherVersions.map((v) => (
-                          <Text
-                            key={v.id}
-                            style={[styles.groupLabel, { color: colors.textSecondary, marginTop: 4 }]}
-                          >
-                            {v.year ?? '?'} · Q{v.number} · {v.text}
-                          </Text>
-                        ))}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
+            {collapseRepeats(questions).map(([q, ...otherVersions]) => (
+              <QuestionCard
+                key={q.id}
+                q={q}
+                versions={otherVersions}
+                all={subject.questions}
+                groups={groups}
+                onMenu={() => openMenu(q)}
+              />
+            ))}
           </View>
         )}
       </ScrollView>
+
+      <QuestionEditModal question={editingQuestion} onSave={handleSaveEdit} onClose={() => setEditingQuestion(null)} />
 
       {/* Move to Topic Modal */}
       <Modal
@@ -379,20 +192,15 @@ export default function TopicScreen() {
           <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Move to Topic</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Move to topic</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-                  Q{movingQuestion?.number}: {movingQuestion?.text}
+                  {movingQuestion ? displayNumber(movingQuestion.number) : ''}: {movingQuestion?.text}
                 </Text>
               </View>
-              <TouchableOpacity
-                onPress={() => setMovingQuestion(null)}
-                style={styles.closeBtn}
-                accessibilityLabel="Close"
-              >
+              <TouchableOpacity onPress={() => setMovingQuestion(null)} style={styles.closeBtn} accessibilityLabel="Close">
                 <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <ScrollView style={styles.modalScroll}>
               {/* Option to Unassign */}
               <TouchableOpacity
@@ -528,81 +336,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.caption,
     textAlign: 'center',
     maxWidth: 280,
-  },
-  sortHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xs,
-  },
-  listHeader: {
-    fontSize: FontSize.tiny + 1,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  listCount: {
-    fontSize: FontSize.tiny + 1,
-  },
-  qCard: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.sm,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  chipsLeft: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-    flex: 1,
-    marginRight: Spacing.sm,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.chip,
-  },
-  badgeText: {
-    fontSize: FontSize.tiny + 1,
-    fontWeight: '700',
-  },
-  moveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    minHeight: 32,
-  },
-  moveBtnText: {
-    fontSize: FontSize.caption,
-    fontWeight: '600',
-  },
-  qText: {
-    fontSize: FontSize.body - 1,
-    lineHeight: 22,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  groupLabel: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-  },
-  expandText: {
-    fontSize: FontSize.caption,
-    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,

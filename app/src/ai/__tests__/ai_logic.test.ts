@@ -353,3 +353,20 @@ describe('validateRepeatGroups (§8.4)', () => {
     assert.strictEqual(validateRepeatGroups({}).ok, false);
   });
 });
+
+describe('repeat batching', () => {
+  it('packs small topics together without splitting a topic', async () => {
+    const { packBatches } = await import('../groupRepeats');
+    const topic = (n: number) => Array.from({ length: n }, (_, i) => i);
+    const batches = packBatches([topic(30), topic(25), topic(20), topic(70)], 60);
+    assert.deepStrictEqual(batches.map((b) => b.map((t) => t.length)), [[30, 25], [20], [70]]);
+  });
+
+  it('keeps only groups that stay within one topic', async () => {
+    const { groupsByTopic } = await import('../groupRepeats');
+    const topicOf = new Map([['Q1', 'a'], ['Q2', 'a'], ['Q3', 'b'], ['Q4', 'b']]);
+    const out = groupsByTopic([['Q1', 'Q2'], ['Q2', 'Q3'], ['Q3', 'Q4']], topicOf);
+    assert.deepStrictEqual(out.get('a'), [['Q1', 'Q2']]);
+    assert.deepStrictEqual(out.get('b'), [['Q3', 'Q4']]);
+  });
+});

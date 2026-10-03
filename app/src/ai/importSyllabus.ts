@@ -1,5 +1,5 @@
 /**
- * Syllabus Import orchestrator (AGENTS.md §8.1).
+ * Syllabus Import orchestrator.
  * Supports PDF (via PdfWorker), photos, or pasted text.
  * ≤ 6 pages: single AI call.
  * > 6 pages: per-page sequential calls + merge by subject name.
@@ -14,7 +14,7 @@ import {
   RawSyllabusTopic,
   SyllabusStructureResponse,
 } from './validators';
-import type { PdfWorkerHandle, PageResult } from '../pdf/PdfWorker';
+import type { PdfWorkerHandle } from '../pdf/PdfWorker';
 import { processPdf, ProcessPdfProgress } from '../pdf/processPdf';
 import { mergeSyllabusSubjects } from '../logic/syllabus';
 
@@ -45,10 +45,6 @@ export type ImportSyllabusOptions = {
   onProgress?: (progress: SyllabusImportProgress) => void;
 };
 
-
-type SyllabusPageContent =
-  | { type: 'text'; text: string }
-  | { type: 'image'; base64: string };
 
 /**
  * Main importSyllabus function.
@@ -107,7 +103,7 @@ export async function importSyllabus(
   }
 
   // --- Case 2 & 3: PDF or Photos ---
-  let pages: SyllabusPageContent[] = [];
+  let pages: string[] = []; // base64 JPEG per page
 
   if (source.type === 'pdf') {
     if (!pdfWorker) {
@@ -144,15 +140,9 @@ export async function importSyllabus(
     });
 
     // Always send the page image, even for text pages: table text extracts in a messy order.
-    pages = pdfResult.pages.flatMap((p): SyllabusPageContent[] => {
-      const base64 = p.result.base64;
-      return base64 ? [{ type: 'image', base64 }] : [];
-    });
+    pages = pdfResult.pages.flatMap((p) => (p.result.base64 ? [p.result.base64] : []));
   } else if (source.type === 'photos') {
-    pages = source.imageBase64s.map((base64) => ({
-      type: 'image',
-      base64,
-    }));
+    pages = source.imageBase64s;
   }
 
   if (pages.length === 0) {
@@ -172,22 +162,12 @@ export async function importSyllabus(
       message: `Analyzing syllabus (${pages.length} page${pages.length > 1 ? 's' : ''})...`,
     });
 
-    let promptText = `${basePrompt}\n\n`;
-    const images: string[] = [];
-
-    pages.forEach((p, idx) => {
-      const pageNum = idx + 1;
-      if (p.type === 'text') {
-        promptText += `\n--- Page ${pageNum} text ---\n${p.text}\n`;
-      } else {
-        promptText += `\n--- Page ${pageNum} is attached as an image ---\n`;
-        images.push(p.base64);
-      }
-    });
+    const promptText =
+      `${basePrompt}\n\n` + pages.map((_, idx) => `--- Page ${idx + 1} is attached as an image ---`).join('\n');
 
     const res = await generateJSON<SyllabusStructureResponse>({
       prompt: promptText,
-      images: images.length > 0 ? images : undefined,
+      images: pages,
       schemaName: 'syllabusStructure',
       provider,
       apiKey,
@@ -207,7 +187,6 @@ export async function importSyllabus(
 
   // --- Sub-branch B: > 6 pages (Per-page calls + merge) ---
   const batchSubjects: RawSyllabusSubject[][] = [];
-  let failureCount = 0;
 
   for (let i = 0; i < pages.length; i++) {
     const pageNum = i + 1;
@@ -220,31 +199,17 @@ export async function importSyllabus(
       message: `Analyzing page ${pageNum} of ${pages.length}...`,
     });
 
-    let pagePrompt = `${basePrompt}\n\n`;
-    const pageImages: string[] = [];
-
-    if (page.type === 'text') {
-      pagePrompt += `--- Page ${pageNum} text ---\n${page.text}`;
-    } else {
-      pagePrompt += `--- Page ${pageNum} is attached as an image ---`;
-      pageImages.push(page.base64);
-    }
-
     const res = await generateJSON<SyllabusStructureResponse>({
-      prompt: pagePrompt,
-      images: pageImages.length > 0 ? pageImages : undefined,
+      prompt: `${basePrompt}\n\n--- Page ${pageNum} is attached as an image ---`,
+      images: [page],
       schemaName: 'syllabusStructure',
       provider,
       apiKey,
       modelId,
     });
 
-    if (res.ok && res.data.subjects.length > 0) {
-      batchSubjects.push(res.data.subjects);
-    } else {
-      // Non-fatal if a single page doesn't have syllabus subjects (e.g. index/cover/instructions page)
-      failureCount++;
-    }
+    // A page with no syllabus content (cover, index, instructions) is fine; skip it
+    if (res.ok && res.data.subjects.length > 0) batchSubjects.push(res.data.subjects);
   }
 
   if (batchSubjects.length === 0) {

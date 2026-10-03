@@ -34,9 +34,14 @@ describe('practicePool', () => {
   ];
   const base = { highPriorityOnly: false, filters: {} };
 
-  it('keeps only selected topics (never unassigned)', () => {
+  it('keeps only selected topics', () => {
     const pool = practicePool(subject(qs), { ...base, topicIds: new Set(['t1', 't2']) });
     assert.deepStrictEqual(pool.map((x) => x.id).sort(), ['a', 'b']);
+  });
+
+  it('includes unassigned questions only when selected', () => {
+    const pool = practicePool(subject(qs), { ...base, topicIds: new Set(['t1', 'unassigned']) });
+    assert.deepStrictEqual(pool.map((x) => x.id).sort(), ['a', 'd']);
   });
 
   it('applies filters', () => {

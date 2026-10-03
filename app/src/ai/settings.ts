@@ -87,3 +87,19 @@ export async function saveApiSettings(settings: {
     await SecureStore.setItemAsync(modelStoreKey, modelId.trim());
   }
 }
+
+/** Switch the active provider and return its saved key and model. */
+export async function setActiveProvider(provider: Provider): Promise<ApiSettings> {
+  await SecureStore.setItemAsync(SECURE_STORE_KEYS.provider, provider);
+  return getApiSettings();
+}
+
+/** Change just the key and/or model of the active provider. */
+export async function updateApiSettings(patch: { apiKey?: string; modelId?: string }): Promise<void> {
+  const cur = await getApiSettings();
+  await saveApiSettings({
+    provider: cur.provider,
+    apiKey: patch.apiKey ?? cur.apiKey,
+    modelId: patch.modelId ?? cur.modelId,
+  });
+}

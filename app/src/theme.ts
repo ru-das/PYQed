@@ -1,6 +1,6 @@
 import { useColorScheme } from 'react-native';
 
-// AGENTS.md §10 — Design language
+// — Design language
 export const Colors = {
   light: {
     background: '#F7F5F0',
@@ -20,12 +20,12 @@ export const Colors = {
     chip: '#EBE8E1',
   },
   dark: {
-    background: '#121212',
-    surface: '#1E1E1E',
+    background: '#000000',
+    surface: '#0E0E0E',
     text: '#EDEBE6',
     textSecondary: '#9C9A95',
-    card: '#1E1E1E',
-    border: '#2E2E2E',
+    card: '#0E0E0E',
+    border: '#262626',
     accent: '#6366F1', // indigo for dark mode
     accentText: '#FFFFFF',
     amber: '#F59E0B',
@@ -34,7 +34,7 @@ export const Colors = {
     redBg: '#7F1D1D',
     success: '#22C55E',
     successBg: '#14532D',
-    chip: '#2A2A2A',
+    chip: '#1C1C1C',
   },
 } as const;
 

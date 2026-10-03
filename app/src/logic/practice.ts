@@ -1,5 +1,5 @@
 /**
- * Pure practice-mode logic (AGENTS.md §9). No AI, no UI.
+ * Pure practice-mode logic. No AI, no UI.
  */
 import { PracticeState, Question, Subject } from './subject';
 import {
@@ -15,13 +15,16 @@ export type PracticeSetup = {
   filters: QuestionFilters;
 };
 
+/** Topic key for questions with no topic; selectable in practice setup like a topic. */
+export const UNASSIGNED = 'unassigned';
+
 /** Questions to drill: selected topics (+ filters), one card per repeat group. */
 export function practicePool(subject: Subject, setup: PracticeSetup): Question[] {
   const hp = setup.highPriorityOnly
     ? highPriorityUnitIds(subject.units, subject.questions, subject.papers.length)
     : null;
   const inScope = subject.questions.filter(
-    (q) => q.topicId !== null && setup.topicIds.has(q.topicId) && (!hp || (q.unitId !== null && hp.has(q.unitId))),
+    (q) => setup.topicIds.has(q.topicId ?? UNASSIGNED) && (!hp || (q.unitId !== null && hp.has(q.unitId))),
   );
   return collapseRepeats(filterQuestions(inScope, setup.filters)).map((g) => g[0]);
 }

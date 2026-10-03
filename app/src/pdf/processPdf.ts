@@ -29,12 +29,23 @@ export type ProcessPdfResult = {
   totalTimeMs: number;
 };
 
+/** Read a PDF file and load it into the worker. Pages are rendered later, one at a time, with worker.getPage. */
+export async function openPdf(
+  fileUri: string,
+  worker: PdfWorkerHandle,
+  onProgress?: (progress: ProcessPdfProgress) => void,
+): Promise<{ pageCount: number }> {
+  onProgress?.({ stage: 'reading', current: 0, total: 1 });
+  // New File API reads content:// URIs directly (the legacy API refuses them in Expo Go).
+  const base64 = await new File(fileUri).base64();
+
+  onProgress?.({ stage: 'loading', current: 0, total: 1 });
+  return worker.loadPdf(base64);
+}
+
 /**
- * Orchestrates PDF processing:
- * 1. Reads local PDF file as base64 using expo-file-system
- * 2. Loads into the hidden pdf.js WebView worker
- * 3. Extracts pages sequentially (one page at a time)
- * 4. Categorizes each page as either 'text' (>200 non-space chars) or 'image' (~1600px JPEG)
+ * Open a PDF and render every page up front (used by syllabus import, which sends all pages in one call).
+ * Each page comes back as 'text' (>200 non-space chars) or 'image' (~1600px JPEG).
  */
 export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdfResult> {
   const {
@@ -45,20 +56,11 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
   } = options;
 
   const startTime = Date.now();
-
-  // Stage 1: Read file
-  onProgress?.({ stage: 'reading', current: 0, total: 1 });
-  // New File API reads content:// URIs directly (the legacy API refuses them in Expo Go).
-  const base64 = await new File(fileUri).base64();
-
-  // Stage 2: Load into pdf.js worker
-  onProgress?.({ stage: 'loading', current: 0, total: 1 });
-  const { pageCount } = await worker.loadPdf(base64);
+  const { pageCount } = await openPdf(fileUri, worker, onProgress);
 
   const totalToProcess = Math.min(pageCount, maxPages);
   const pages: ProcessedPdfPage[] = [];
 
-  // Stage 3: Process pages sequentially
   for (let pageNum = 1; pageNum <= totalToProcess; pageNum++) {
     onProgress?.({
       stage: 'page',

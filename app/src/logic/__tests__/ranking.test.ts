@@ -6,13 +6,11 @@ import {
   collapseRepeats,
   applyRepeatGroups,
   topicWeight,
-  topicAvgMarks,
   unitWeight,
   highPriorityUnitIds,
   defaultSort,
   sortQuestions,
   filterQuestions,
-  questionCountByTopic,
   distinctYears,
   maxUnitWeight,
 } from '../ranking';
@@ -57,7 +55,7 @@ describe('timesAsked (AGENTS.md §9)', () => {
   });
 });
 
-describe('topicWeight and topicAvgMarks (AGENTS.md §9)', () => {
+describe('topicWeight', () => {
   it('computes total marks / paperCount', () => {
     const qs = [
       createTestQuestion({ id: 'q1', topicId: 't1', marks: 5 }),
@@ -65,7 +63,6 @@ describe('topicWeight and topicAvgMarks (AGENTS.md §9)', () => {
       createTestQuestion({ id: 'q3', topicId: 't2', marks: 4 }),
     ];
     assert.strictEqual(topicWeight('t1', qs, 2), 7.5);
-    assert.strictEqual(topicAvgMarks('t1', qs, 2), 7.5);
   });
 
   it('treats null marks as 0 without error', () => {
@@ -245,20 +242,7 @@ describe('filterQuestions', () => {
   });
 });
 
-describe('questionCountByTopic, distinctYears, maxUnitWeight', () => {
-  it('counts questions per topic ID', () => {
-    const qs = [
-      createTestQuestion({ id: 'q1', topicId: 't1' }),
-      createTestQuestion({ id: 'q2', topicId: 't1' }),
-      createTestQuestion({ id: 'q3', topicId: 't2' }),
-      createTestQuestion({ id: 'q4', topicId: null }),
-    ];
-    const counts = questionCountByTopic(qs);
-    assert.strictEqual(counts.get('t1'), 2);
-    assert.strictEqual(counts.get('t2'), 1);
-    assert.strictEqual(counts.has('t3'), false);
-  });
-
+describe('distinctYears, maxUnitWeight', () => {
   it('returns distinct descending years', () => {
     const qs = [
       createTestQuestion({ id: 'q1', year: 2022 }),

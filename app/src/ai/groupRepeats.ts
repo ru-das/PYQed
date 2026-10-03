@@ -1,7 +1,7 @@
 /**
- * Repeat-group orchestrator (AGENTS.md §8.4).
- * Runs after labelling. For each topic that received new questions (and has
- * ≥ 2 questions), asks the AI which questions are essentially the same.
+ * Repeat-group orchestrator.
+ * Runs after labelling. For each topic that received new questions (and has >= 2 questions),
+ * asks the AI which questions are essentially the same. Several small topics share one call.
  * Code assigns repeatGroupId; times-asked is computed in ranking.ts.
  */
 
@@ -14,19 +14,40 @@ import { applyRepeatGroups } from '../logic/ranking';
 
 export type RepeatProgress = { current: number; total: number; message: string };
 
-/** "QuestionID | year | text" */
-function buildQuestionList(questions: Question[]): string {
-  return questions
-    .map(
-      (q) =>
-        `${q.id} | ${q.year ?? 'unknown'} | ${q.text.slice(0, 300).replace(/\r?\n/g, ' ')}`,
-    )
-    .join('\n');
+const BATCH_QUESTIONS = 60; // questions per AI call; a single bigger topic still gets its own call
+
+/** Pack per-topic question lists into batches of about `max` questions, never splitting a topic. */
+export function packBatches<T>(jobs: T[][], max = BATCH_QUESTIONS): T[][][] {
+  const batches: T[][][] = [];
+  let current: T[][] = [];
+  let size = 0;
+  for (const job of jobs) {
+    if (current.length && size + job.length > max) {
+      batches.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(job);
+    size += job.length;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+/** Keep only groups whose members are all in the same topic, bucketed by that topic. */
+export function groupsByTopic(groups: string[][], topicOf: Map<string, string>): Map<string, string[][]> {
+  const out = new Map<string, string[][]>();
+  for (const g of groups) {
+    const topic = topicOf.get(g[0]);
+    if (!topic || !g.every((id) => topicOf.get(id) === topic)) continue;
+    out.set(topic, [...(out.get(topic) ?? []), g]);
+  }
+  return out;
 }
 
 /**
  * Returns the full questions array with repeatGroupId updated for affected topics.
- * A topic whose call fails keeps its existing groups (non-fatal).
+ * A batch whose call fails keeps its topics' existing groups (non-fatal).
  */
 export async function groupRepeats(
   subject: Subject,
@@ -42,38 +63,58 @@ export async function groupRepeats(
     if (newIds.has(q.id) && q.topicId) affectedTopics.add(q.topicId);
   }
 
-  // Only topics with ≥ 2 questions can contain a repeat
+  const topicNames = new Map<string, string>();
+  for (const u of subject.units) for (const t of u.topics) topicNames.set(t.id, t.name);
+
+  // Only topics with >= 2 questions can contain a repeat
   const jobs = Array.from(affectedTopics)
     .map((topicId) => subject.questions.filter((q) => q.topicId === topicId))
     .filter((qs) => qs.length >= 2);
+  const batches = packBatches(jobs);
 
   let questions = subject.questions;
-  for (let i = 0; i < jobs.length; i++) {
-    const topicQs = jobs[i];
+  for (let i = 0; i < batches.length; i++) {
     onProgress?.({
       current: i + 1,
-      total: jobs.length,
-      message: `Finding repeated questions (topic ${i + 1} of ${jobs.length})...`,
+      total: batches.length,
+      message: `Finding repeated questions (${i + 1} of ${batches.length})...`,
+    });
+
+    // Short aliases (Q1, Q2...) instead of the near-identical real IDs, which models garble when copying back
+    const aliasToId = new Map<string, string>();
+    const topicOfAlias = new Map<string, string>();
+    const sections = batches[i].map((topicQs) => {
+      const topicId = topicQs[0].topicId as string;
+      const lines = topicQs.map((q) => {
+        const alias = `Q${aliasToId.size + 1}`;
+        aliasToId.set(alias, q.id);
+        topicOfAlias.set(alias, topicId);
+        return `${alias} | ${q.year ?? 'unknown'} | ${q.text.slice(0, 300).replace(/\r?\n/g, ' ')}`;
+      });
+      return `Topic: ${topicNames.get(topicId) ?? 'Other'}\n${lines.join('\n')}`;
     });
 
     try {
       const res = await generateJSON<RepeatGroupsResponse>({
-        prompt: repeatGroupsPrompt(buildQuestionList(topicQs)),
+        prompt: repeatGroupsPrompt(sections.join('\n\n')),
         schemaName: 'repeatGroups',
         provider,
         apiKey,
         modelId,
       });
       if (!res.ok) continue;
-      const validated = validateRepeatGroups(res.data, new Set(topicQs.map((q) => q.id)));
+      const normalised = { groups: res.data.groups.map((g) => g.map((a) => String(a).trim().toUpperCase())) };
+      const validated = validateRepeatGroups(normalised, new Set(aliasToId.keys()));
       if (!validated.ok) continue;
-      questions = applyRepeatGroups(
-        questions,
-        new Set(topicQs.map((q) => q.id)),
-        validated.data.groups,
-      );
+
+      const byTopic = groupsByTopic(validated.data.groups, topicOfAlias);
+      for (const topicQs of batches[i]) {
+        const topicId = topicQs[0].topicId as string;
+        const groups = (byTopic.get(topicId) ?? []).map((g) => g.map((a) => aliasToId.get(a) as string));
+        questions = applyRepeatGroups(questions, new Set(topicQs.map((q) => q.id)), groups);
+      }
     } catch {
-      // Non-fatal: topic keeps its existing groups
+      // Non-fatal: these topics keep their existing groups
     }
   }
   return questions;

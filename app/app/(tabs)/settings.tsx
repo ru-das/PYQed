@@ -10,7 +10,8 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
+import { Logo } from '../../src/components/Logo';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -25,8 +26,8 @@ import {
   DEFAULT_MODEL_AISTUDIO,
   ALT_MODEL_AISTUDIO,
   DEFAULT_MODEL_OPENROUTER,
-  SECURE_STORE_KEYS,
 } from '../../src/config';
+import { getApiSettings, setActiveProvider, updateApiSettings } from '../../src/ai/settings';
 import { generateJSON } from '../../src/ai/client';
 
 export default function SettingsScreen() {
@@ -45,102 +46,35 @@ export default function SettingsScreen() {
 
   // Load saved settings
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const savedProvider = (await SecureStore.getItemAsync(
-          SECURE_STORE_KEYS.provider,
-        )) as Provider | null;
-        const currentProv = savedProvider || DEFAULT_PROVIDER;
-        setProvider(currentProv);
-
-        if (currentProv === 'aistudio') {
-          const key = await SecureStore.getItemAsync(
-            SECURE_STORE_KEYS.aiStudioKey,
-          );
-          const model = await SecureStore.getItemAsync(
-            SECURE_STORE_KEYS.aiStudioModel,
-          );
-          setApiKey(key || '');
-          setModelId(model || DEFAULT_MODEL_AISTUDIO);
-        } else {
-          const key = await SecureStore.getItemAsync(
-            SECURE_STORE_KEYS.openRouterKey,
-          );
-          const model = await SecureStore.getItemAsync(
-            SECURE_STORE_KEYS.openRouterModel,
-          );
-          setApiKey(key || '');
-          setModelId(model || DEFAULT_MODEL_OPENROUTER);
-        }
-      } catch (err) {
-        console.warn('Failed to load settings from SecureStore', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadSettings();
+    getApiSettings()
+      .then((cfg) => {
+        setProvider(cfg.provider);
+        setApiKey(cfg.apiKey);
+        setModelId(cfg.modelId);
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
-  // Switch provider handler
   const handleSwitchProvider = async (newProvider: Provider) => {
     if (newProvider === provider) return;
     setProvider(newProvider);
     setTestResult(null);
-
-    try {
-      await SecureStore.setItemAsync(SECURE_STORE_KEYS.provider, newProvider);
-      if (newProvider === 'aistudio') {
-        const key = await SecureStore.getItemAsync(SECURE_STORE_KEYS.aiStudioKey);
-        const model = await SecureStore.getItemAsync(SECURE_STORE_KEYS.aiStudioModel);
-        setApiKey(key || '');
-        setModelId(model || DEFAULT_MODEL_AISTUDIO);
-      } else {
-        const key = await SecureStore.getItemAsync(SECURE_STORE_KEYS.openRouterKey);
-        const model = await SecureStore.getItemAsync(SECURE_STORE_KEYS.openRouterModel);
-        setApiKey(key || '');
-        setModelId(model || DEFAULT_MODEL_OPENROUTER);
-      }
-    } catch (e) {
-      console.warn('Failed to switch provider', e);
-    }
+    const cfg = await setActiveProvider(newProvider);
+    setApiKey(cfg.apiKey);
+    setModelId(cfg.modelId);
   };
 
-  // Save key
-  const handleSaveKey = async (text: string) => {
+  // Saved as you type, so there is no Save button to forget
+  const handleSaveKey = (text: string) => {
     setApiKey(text);
     setTestResult(null);
-    try {
-      const storeKey =
-        provider === 'aistudio'
-          ? SECURE_STORE_KEYS.aiStudioKey
-          : SECURE_STORE_KEYS.openRouterKey;
-      if (text.trim()) {
-        await SecureStore.setItemAsync(storeKey, text.trim());
-      } else {
-        await SecureStore.deleteItemAsync(storeKey);
-      }
-    } catch (e) {
-      console.warn('Failed to persist API key', e);
-    }
+    updateApiSettings({ apiKey: text }).catch(() => {});
   };
 
-  // Save model ID
-  const handleSaveModel = async (text: string) => {
+  const handleSaveModel = (text: string) => {
     setModelId(text);
     setTestResult(null);
-    try {
-      const storeModel =
-        provider === 'aistudio'
-          ? SECURE_STORE_KEYS.aiStudioModel
-          : SECURE_STORE_KEYS.openRouterModel;
-      if (text.trim()) {
-        await SecureStore.setItemAsync(storeModel, text.trim());
-      } else {
-        await SecureStore.deleteItemAsync(storeModel);
-      }
-    } catch (e) {
-      console.warn('Failed to persist model ID', e);
-    }
+    if (text.trim()) updateApiSettings({ modelId: text }).catch(() => {});
   };
 
   // Test API key
@@ -160,7 +94,7 @@ export default function SettingsScreen() {
         schemaName: '__test',
         provider,
         apiKey: apiKey.trim(),
-        modelId: modelId.trim(),
+        modelId: modelId.trim() || (provider === 'aistudio' ? DEFAULT_MODEL_AISTUDIO : DEFAULT_MODEL_OPENROUTER),
       });
 
       if (result.ok) {
@@ -465,17 +399,17 @@ export default function SettingsScreen() {
           { backgroundColor: colors.card, borderColor: colors.border },
         ]}
       >
+        <View style={{ alignItems: 'center', marginBottom: Spacing.sm }}>
+          <Logo size={72} />
+        </View>
         <Text style={[styles.aboutTitle, { color: colors.text }]}>
           About PYQed
         </Text>
         <Text style={[styles.aboutBody, { color: colors.textSecondary, marginTop: Spacing.sm }]}>
-          <Text style={{ fontWeight: '600' }}>Privacy:</Text> Papers and syllabi are sent to your chosen provider only during import. Everything else stays strictly on your phone. Your API key is stored securely in hardware-backed storage and never logged or exported.
+          <Text style={{ fontWeight: '600' }}>Privacy:</Text> Papers and syllabi are sent to your chosen provider only while importing. Everything else stays on this phone. Your API key is kept in secure storage and is never included in shared files.
         </Text>
         <Text style={[styles.versionText, { color: colors.textSecondary, marginTop: Spacing.md }]}>
-          Version 1.0.0
-        </Text>
-        <Text style={[styles.versionText, { color: colors.textSecondary, marginTop: Spacing.xs }]}>
-          Made with ❤️ by Rupam
+          Version {Constants.expoConfig?.version}
         </Text>
       </View>
     </ScrollView>

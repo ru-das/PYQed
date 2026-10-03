@@ -1,9 +1,11 @@
 /**
- * AI client — calls Google AI Studio or OpenRouter with the configured model.
- * AGENTS.md §7.
+ * AI client: calls Google AI Studio or OpenRouter with the configured model.
  */
 
 import { AI_TIMEOUT_MS, Provider } from '../config';
+
+// A retry after an unreadable answer gets less time, so one bad page can't block the import for 10 minutes
+const RETRY_TIMEOUT_MS = 120_000;
 import { validators, ValidationResult } from './validators';
 
 export type GenerateJSONParams = {
@@ -27,6 +29,8 @@ export type GenerateJSONResult<T = unknown> =
       error: string;
       friendlyError: string;
       rawText?: string;
+      /** True for problems retrying the next page won't fix (bad key, rate limit, offline, timeout). */
+      fatal: boolean;
       timeMs: number;
     };
 
@@ -60,11 +64,12 @@ function toFriendlyError(
   status: number | null,
   rawMessage: string,
   elapsedMs = 0,
-): { error: string; friendlyError: string } {
+): { error: string; friendlyError: string; fatal: boolean } {
   if (status === 401 || status === 403) {
     return {
       error: `Auth error (${status}): ${rawMessage}`,
       friendlyError: "Your API key doesn't work. Check it in Settings.",
+      fatal: true,
     };
   }
   if (status === 429) {
@@ -72,6 +77,7 @@ function toFriendlyError(
       error: `Rate limited (429): ${rawMessage}`,
       friendlyError:
         'Free daily limit reached. Your progress is saved; try again later.',
+      fatal: true,
     };
   }
   if (rawMessage.includes('timed out') || rawMessage.includes('timeout')) {
@@ -79,6 +85,7 @@ function toFriendlyError(
       error: `Timeout: ${rawMessage}`,
       friendlyError:
         'The request took too long. The model may be busy on the free tier — try again.',
+      fatal: true,
     };
   }
   if (status === null || rawMessage.includes('Network') || rawMessage.includes('Failed to fetch')) {
@@ -89,16 +96,19 @@ function toFriendlyError(
         friendlyError: `The connection dropped while AI was reading (after ${Math.round(
           elapsedMs / 1000,
         )}s). Try again.`,
+        fatal: true,
       };
     }
     return {
       error: `Network error: ${rawMessage}`,
       friendlyError: 'No internet. Your subjects and practice still work offline.',
+      fatal: true,
     };
   }
   return {
     error: `Error (${status}): ${rawMessage}`,
     friendlyError: `Something went wrong (${status || 'network'}). Tap to retry.`,
+    fatal: false,
   };
 }
 
@@ -210,7 +220,6 @@ async function callOpenRouter(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://pyqed.app',
       'X-Title': 'PYQed',
     },
     body: JSON.stringify({
@@ -236,7 +245,7 @@ async function callOpenRouter(
 }
 
 /**
- * Main generateJSON function (AGENTS.md §7)
+ * Main generateJSON function
  */
 export async function generateJSON<T = unknown>(
   params: GenerateJSONParams,
@@ -249,6 +258,7 @@ export async function generateJSON<T = unknown>(
       ok: false,
       error: `Validator for schema "${params.schemaName}" not found`,
       friendlyError: 'Internal error: missing response validator.',
+      fatal: true,
       timeMs: Date.now() - startTime,
     };
   }
@@ -258,6 +268,7 @@ export async function generateJSON<T = unknown>(
       ok: false,
       error: 'Missing API key',
       friendlyError: "Your API key doesn't work. Check it in Settings.",
+      fatal: true,
       timeMs: Date.now() - startTime,
     };
   }
@@ -265,13 +276,14 @@ export async function generateJSON<T = unknown>(
   const runCall = async (
     promptText: string,
     withJsonMime: boolean,
+    timeoutMs: number = AI_TIMEOUT_MS,
   ): Promise<{ text: string; status: number; error?: string }> => {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, AI_TIMEOUT_MS);
+    }, timeoutMs);
     try {
       if (params.provider === 'aistudio') {
         return await callGoogleAIStudio(
@@ -314,8 +326,7 @@ export async function generateJSON<T = unknown>(
   if (!res.text && res.error && params.provider === 'aistudio') {
     const isMimeError =
       res.error.toLowerCase().includes('responsemimetype') ||
-      res.error.toLowerCase().includes('mime_type') ||
-      res.status === 400;
+      res.error.toLowerCase().includes('mime_type');
     if (isMimeError) {
       res = await runCall(params.prompt, false);
     }
@@ -332,6 +343,7 @@ export async function generateJSON<T = unknown>(
       ok: false,
       error: friendly.error,
       friendlyError: friendly.friendlyError,
+      fatal: friendly.fatal,
       timeMs: Date.now() - startTime,
     };
   }
@@ -350,10 +362,10 @@ export async function generateJSON<T = unknown>(
     }
   }
 
-  // If extraction or validation failed, retry ONCE with explicit instructions (AGENTS.md §7)
+  // If extraction or validation failed, retry ONCE with explicit instructions
   if (!validation.ok) {
     const retryPrompt = `${params.prompt}\n\nIMPORTANT: Your previous response was invalid. Return ONLY a single raw valid JSON object without markdown fences, thoughts, or explanations.`;
-    const retryRes = await runCall(retryPrompt, false);
+    const retryRes = await runCall(retryPrompt, false, RETRY_TIMEOUT_MS);
 
     if (retryRes.text) {
       res = retryRes;
@@ -384,6 +396,7 @@ export async function generateJSON<T = unknown>(
     ok: false,
     error: validation.error,
     friendlyError: "Couldn't read this page. Tap Retry or add questions manually.",
+    fatal: false,
     rawText: res.text,
     timeMs: totalTime,
   };

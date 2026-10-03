@@ -1,20 +1,20 @@
 /**
- * Paper Import orchestrator (AGENTS.md §8.2, §4).
- * Reads each page (text or scanned image), invokes the AI sequentially per page.
- * Tracks continuity (previousLastQuestion), merges continues_previous,
- * extracts year and metadata, supports resuming on rate limit / network error.
+ * Paper import orchestrator.
+ * Reads each page (text or scanned image) and asks the AI for its questions, one page at a time.
+ * Tracks continuity (previous page's last question), merges questions that continue across pages,
+ * detects the year, and supports resuming after a rate limit or network error.
  */
 
-import { Provider } from '../config';
-import { generateJSON } from './client';
+import { Provider, MAX_PAGES_PER_IMPORT } from '../config';
+import { generateJSON, GenerateJSONResult } from './client';
 import { pageToQuestionsPrompt } from './prompts';
 import {
   ExtractedPaperMetadata,
   PageQuestionsResponse,
   RawExtractedQuestion,
 } from './validators';
-import type { PdfWorkerHandle, PageResult } from '../pdf/PdfWorker';
-import { processPdf, ProcessPdfProgress } from '../pdf/processPdf';
+import type { PdfWorkerHandle } from '../pdf/PdfWorker';
+import { openPdf } from '../pdf/processPdf';
 import { extractYearFromFilename, mergeContinuesPrevious } from '../logic/paper';
 
 export type PaperSource =
@@ -27,7 +27,6 @@ export type PageExtraction = {
   questions: RawExtractedQuestion[];
   paperMeta: ExtractedPaperMetadata | null;
   error?: string;
-  friendlyError?: string;
 };
 
 export type PaperImportProgress = {
@@ -43,15 +42,15 @@ export type PaperImportResult =
       pages: PageExtraction[];
       detectedYear: number | null;
       detectedSession: string | null;
-      detectedSubjectName: string | null;
-      detectedSubjectCode: string | null;
+      /** Shown to the user after import, e.g. when a long PDF was cut short. */
+      notice?: string;
     }
   | {
       ok: false;
       error: string;
       friendlyError: string;
       partialPages: PageExtraction[];
-      lastCompletedPage: number; // 0-indexed count of completed pages
+      lastCompletedPage: number; // how many pages are done
       detectedYear: number | null;
       detectedSession: string | null;
     };
@@ -67,37 +66,31 @@ export type ImportPaperOptions = {
   resumeFromPage?: number;
   /** Previously extracted pages if resuming */
   previousPages?: PageExtraction[];
+  /** Checked between pages; return true to stop (user left the screen). */
+  shouldCancel?: () => boolean;
 };
 
-type PreparedPage = {
-  pageNumber: number;
-  type: 'text' | 'image';
-  text?: string;
-  imageBase64: string;
-};
+type AiSettings = { provider: Provider; apiKey: string; modelId: string };
 
-/**
- * Checks if an error is a fatal / transport error that should halt the queue
- * so the user can resume (429 rate limit, 401/403 auth, network disconnect).
- */
-function isFatalError(error: string): boolean {
-  const lower = error.toLowerCase();
-  return (
-    lower.includes('429') ||
-    lower.includes('rate limit') ||
-    lower.includes('daily limit') ||
-    lower.includes('401') ||
-    lower.includes('403') ||
-    lower.includes('network') ||
-    lower.includes('failed to fetch') ||
-    lower.includes('timed out') ||
-    lower.includes('timeout')
-  );
+/** Ask the AI for the questions on one page. Used by the import loop and by "Retry this page". */
+export function extractPage(
+  page: { pageNumber: number; text?: string; imageBase64: string },
+  totalPages: number,
+  previousLastQuestion: string | undefined,
+  ai: AiSettings,
+): Promise<GenerateJSONResult<PageQuestionsResponse>> {
+  const basePrompt = pageToQuestionsPrompt(page.pageNumber, totalPages, previousLastQuestion);
+  const prompt = page.text
+    ? `${basePrompt}\n\nHere is the text extracted from this page:\n"""\n${page.text}\n"""`
+    : basePrompt;
+  return generateJSON<PageQuestionsResponse>({
+    prompt,
+    images: page.imageBase64 ? [page.imageBase64] : undefined,
+    schemaName: 'pageQuestions',
+    ...ai,
+  });
 }
 
-/**
- * Main importPaper orchestrator.
- */
 export async function importPaper(
   options: ImportPaperOptions,
 ): Promise<PaperImportResult> {
@@ -110,138 +103,84 @@ export async function importPaper(
     onProgress,
     resumeFromPage = 0,
     previousPages = [],
+    shouldCancel,
   } = options;
 
+  const fail = (
+    error: string,
+    friendlyError: string,
+    partialPages: PageExtraction[] = previousPages,
+    year: number | null = null,
+    session: string | null = null,
+  ): PaperImportResult => ({
+    ok: false,
+    error,
+    friendlyError,
+    partialPages,
+    lastCompletedPage: partialPages.length,
+    detectedYear: year,
+    detectedSession: session,
+  });
+
   if (!apiKey || !apiKey.trim()) {
-    return {
-      ok: false,
-      error: 'Missing API key',
-      friendlyError: "Your API key doesn't work. Check it in Settings.",
-      partialPages: previousPages,
-      lastCompletedPage: previousPages.length,
-      detectedYear: null,
-      detectedSession: null,
-    };
+    return fail('Missing API key', "Your API key doesn't work. Check it in Settings.");
   }
 
-  // --- Step 1: Prepare pages (read PDF or format photos) ---
-  let preparedPages: PreparedPage[] = [];
+  // --- Step 1: Work out how many pages there are and how to get each one ---
+  let totalPages = 0;
+  let notice: string | undefined;
+  // PDF pages are rendered one at a time as the loop reaches them, so resuming never re-renders finished pages
+  let prepare: (i: number) => Promise<{ text?: string; imageBase64: string }>;
 
   if (source.type === 'pdf') {
-    if (!pdfWorker) {
-      return {
-        ok: false,
-        error: 'PDF worker not initialized',
-        friendlyError: 'Internal error: PDF reader not ready.',
-        partialPages: previousPages,
-        lastCompletedPage: previousPages.length,
-        detectedYear: null,
-        detectedSession: null,
-      };
-    }
+    if (!pdfWorker) return fail('PDF worker not initialized', 'Internal error: PDF reader not ready.');
 
-    onProgress?.({
-      stage: 'reading',
-      current: 0,
-      total: 1,
-      message: 'Reading PDF document...',
-    });
-
+    onProgress?.({ stage: 'reading', current: 0, total: 1, message: 'Reading PDF document...' });
     try {
-      const pdfResult = await processPdf({
-        fileUri: source.fileUri,
-        worker: pdfWorker,
-        onProgress: (p: ProcessPdfProgress) => {
-          onProgress?.({
-            stage: 'reading',
-            current: p.current,
-            total: p.total,
-            message:
-              p.stage === 'reading'
-                ? 'Reading PDF file...'
-                : p.stage === 'loading'
-                ? 'Loading PDF engine...'
-                : `Extracting page ${p.current} of ${p.total}...`,
-          });
-        },
-      });
-
-      preparedPages = pdfResult.pages.map((p) => {
-        const res = p.result;
-        if (res.type === 'text') {
-          return {
-            pageNumber: p.pageNumber,
-            type: 'text',
-            text: res.text,
-            imageBase64: res.base64 || '',
-          };
-        }
-        return {
-          pageNumber: p.pageNumber,
-          type: 'image',
-          imageBase64: res.base64 || '',
-        };
-      });
+      const { pageCount } = await openPdf(source.fileUri, pdfWorker, (p) =>
+        onProgress?.({
+          stage: 'reading',
+          current: p.current,
+          total: p.total,
+          message: p.stage === 'reading' ? 'Reading PDF file...' : 'Loading PDF engine...',
+        }),
+      );
+      totalPages = Math.min(pageCount, MAX_PAGES_PER_IMPORT);
+      if (pageCount > totalPages) {
+        notice = `Only the first ${totalPages} of ${pageCount} pages were read.`;
+      }
     } catch (err: any) {
-      return {
-        ok: false,
-        error: err?.message || 'Failed to read PDF',
-        friendlyError: "Couldn't read this PDF file. Please check if the file is valid.",
-        partialPages: previousPages,
-        lastCompletedPage: previousPages.length,
-        detectedYear: null,
-        detectedSession: null,
-      };
+      return fail(err?.message || 'Failed to read PDF', "Couldn't read this PDF file. Please check if the file is valid.");
     }
-  } else if (source.type === 'photos') {
-    preparedPages = source.imageBase64s.map((base64, idx) => ({
-      pageNumber: idx + 1,
-      type: 'image',
-      imageBase64: base64,
-    }));
-  }
-
-  const totalPages = preparedPages.length;
-  if (totalPages === 0) {
-    return {
-      ok: false,
-      error: 'No pages found',
-      friendlyError: 'No readable pages found in the selected document.',
-      partialPages: previousPages,
-      lastCompletedPage: 0,
-      detectedYear: null,
-      detectedSession: null,
+    prepare = async (i) => {
+      const res = await pdfWorker.getPage(i + 1);
+      return { text: res.type === 'text' ? res.text : undefined, imageBase64: res.base64 || '' };
     };
+  } else {
+    totalPages = source.imageBase64s.length;
+    prepare = async (i) => ({ imageBase64: source.imageBase64s[i] });
   }
 
-  // --- Step 2: Sequential AI extraction per page ---
+  if (totalPages === 0) {
+    return fail('No pages found', 'No readable pages found in the selected document.', previousPages);
+  }
+
+  // --- Step 2: One AI call per page, in order ---
   const extractedPages: PageExtraction[] = [...previousPages];
   let detectedYear: number | null = null;
   let detectedSession: string | null = null;
-  let detectedSubjectName: string | null = null;
-  let detectedSubjectCode: string | null = null;
 
-  // Restore existing detected metadata from previousPages if resuming
+  // Restore detected metadata when resuming
   for (const p of previousPages) {
-    if (detectedYear === null && p.paperMeta?.year) {
-      detectedYear = p.paperMeta.year;
-    }
-    if (detectedSession === null && p.paperMeta?.session) {
-      detectedSession = p.paperMeta.session;
-    }
-    if (detectedSubjectName === null && p.paperMeta?.subject_name) {
-      detectedSubjectName = p.paperMeta.subject_name;
-    }
-    if (detectedSubjectCode === null && p.paperMeta?.subject_code) {
-      detectedSubjectCode = p.paperMeta.subject_code;
-    }
+    if (detectedYear === null && p.paperMeta?.year) detectedYear = p.paperMeta.year;
+    if (detectedSession === null && p.paperMeta?.session) detectedSession = p.paperMeta.session;
   }
 
-  const startIdx = Math.max(0, resumeFromPage);
-
-  for (let i = startIdx; i < totalPages; i++) {
-    const page = preparedPages[i];
-    const pageNum = page.pageNumber;
+  for (let i = Math.max(0, resumeFromPage); i < totalPages; i++) {
+    const pageNum = i + 1;
+    if (shouldCancel?.()) {
+      return fail('Cancelled', 'Import cancelled.', extractedPages, detectedYear, detectedSession);
+    }
 
     onProgress?.({
       stage: 'extracting',
@@ -250,92 +189,59 @@ export async function importPaper(
       message: `Reading page ${pageNum} of ${totalPages}...`,
     });
 
-    // Determine the last question number from the previous completed page for continuity
-    let previousLastQuestion: string | undefined = undefined;
-    if (extractedPages.length > 0) {
-      const lastPageQuestions = extractedPages[extractedPages.length - 1].questions;
-      if (lastPageQuestions.length > 0) {
-        previousLastQuestion = lastPageQuestions[lastPageQuestions.length - 1].number;
-      }
+    let page: { text?: string; imageBase64: string };
+    try {
+      page = await prepare(i);
+    } catch (err: any) {
+      // One page that won't render shouldn't stop the rest; the user can add its questions by hand
+      extractedPages.push({
+        pageNumber: pageNum,
+        imageBase64: '',
+        questions: [],
+        paperMeta: null,
+        error: err?.message || `Page ${pageNum} could not be rendered.`,
+      });
+      continue;
     }
 
-    const basePrompt = pageToQuestionsPrompt(pageNum, totalPages, previousLastQuestion);
-    let promptText = basePrompt;
-    let images: string[] | undefined = undefined;
+    // Last question of the previous page, so the model can tell a continuation from a new question
+    const prevQs = extractedPages[extractedPages.length - 1]?.questions ?? [];
+    const previousLastQuestion = prevQs.length ? prevQs[prevQs.length - 1].number : undefined;
 
-    if (page.type === 'text' && page.text) {
-      promptText = `${basePrompt}\n\nHere is the text extracted from this page:\n"""\n${page.text}\n"""`;
-      // For text pages, if we also have an image, pass it as image fallback
-      if (page.imageBase64) {
-        images = [page.imageBase64];
-      }
-    } else if (page.imageBase64) {
-      images = [page.imageBase64];
-    }
-
-    const res = await generateJSON<PageQuestionsResponse>({
-      prompt: promptText,
-      images,
-      schemaName: 'pageQuestions',
-      provider,
-      apiKey,
-      modelId,
-    });
+    const res = await extractPage(
+      { pageNumber: pageNum, ...page },
+      totalPages,
+      previousLastQuestion,
+      { provider, apiKey, modelId },
+    );
 
     if (!res.ok) {
-      // Check if fatal error (rate limit 429, auth, network)
-      if (isFatalError(res.error) || isFatalError(res.friendlyError)) {
-        return {
-          ok: false,
-          error: res.error,
-          friendlyError: res.friendlyError,
-          partialPages: extractedPages,
-          lastCompletedPage: extractedPages.length,
-          detectedYear,
-          detectedSession,
-        };
+      // Rate limit, bad key, offline: stop so the user can resume from this page
+      if (res.fatal) {
+        return fail(res.error, res.friendlyError, extractedPages, detectedYear, detectedSession);
       }
-
-      // Per-page non-fatal error: record page failure, let user retry or enter manually in review (AGENTS.md §6)
+      // Otherwise just this page failed: record it, the user can retry or enter questions by hand
       extractedPages.push({
         pageNumber: pageNum,
         imageBase64: page.imageBase64,
         questions: [],
         paperMeta: null,
         error: res.error,
-        friendlyError: res.friendlyError,
       });
       continue;
     }
 
-    // Process questions and continuity
     let currentQuestions = [...res.data.questions];
 
-    if (
-      extractedPages.length > 0 &&
-      currentQuestions.length > 0 &&
-      currentQuestions[0].continues_previous
-    ) {
-      const prevPageIndex = extractedPages.length - 1;
-      const prevQuestions = extractedPages[prevPageIndex].questions;
-      const merged = mergeContinuesPrevious(prevQuestions, currentQuestions);
-      extractedPages[prevPageIndex].questions = merged.prev;
+    if (extractedPages.length > 0 && currentQuestions.length > 0 && currentQuestions[0].continues_previous) {
+      const prevIndex = extractedPages.length - 1;
+      const merged = mergeContinuesPrevious(extractedPages[prevIndex].questions, currentQuestions);
+      extractedPages[prevIndex].questions = merged.prev;
       currentQuestions = merged.current;
     }
 
-    // Update paper metadata if found
-    if (detectedYear === null && res.data.paper?.year) {
-      detectedYear = res.data.paper.year;
-    }
-    if (detectedSession === null && res.data.paper?.session) {
-      detectedSession = res.data.paper.session;
-    }
-    if (detectedSubjectName === null && res.data.paper?.subject_name) {
-      detectedSubjectName = res.data.paper.subject_name;
-    }
-    if (detectedSubjectCode === null && res.data.paper?.subject_code) {
-      detectedSubjectCode = res.data.paper.subject_code;
-    }
+    if (detectedYear === null && res.data.paper?.year) detectedYear = res.data.paper.year;
+    if (detectedSession === null && res.data.paper?.session) detectedSession = res.data.paper.session;
 
     extractedPages.push({
       pageNumber: pageNum,
@@ -345,27 +251,14 @@ export async function importPaper(
     });
   }
 
-  // --- Step 3: Fallback Year Detection (AGENTS.md §8.2) ---
+  // --- Step 3: No year on any page? Try the file name ---
   if (detectedYear === null) {
-    if (source.type === 'pdf') {
-      detectedYear = extractYearFromFilename(source.fileName);
-    } else if (source.type === 'photos' && source.sourceNames && source.sourceNames.length > 0) {
-      for (const name of source.sourceNames) {
-        const parsed = extractYearFromFilename(name);
-        if (parsed !== null) {
-          detectedYear = parsed;
-          break;
-        }
-      }
+    const names = source.type === 'pdf' ? [source.fileName] : source.sourceNames ?? [];
+    for (const name of names) {
+      detectedYear = extractYearFromFilename(name);
+      if (detectedYear !== null) break;
     }
   }
 
-  return {
-    ok: true,
-    pages: extractedPages,
-    detectedYear,
-    detectedSession,
-    detectedSubjectName,
-    detectedSubjectCode,
-  };
+  return { ok: true, pages: extractedPages, detectedYear, detectedSession, notice };
 }

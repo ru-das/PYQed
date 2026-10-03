@@ -1,4 +1,4 @@
-// Pure subject types + helpers (AGENTS.md §5). No file-system imports so tests run under node.
+// Pure subject types + helpers. No file-system imports so tests run under node.
 
 export const CURRENT_VERSION = 1;
 
@@ -79,4 +79,9 @@ export function migrate(raw: any): Subject {
 
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** Question number for display: "Q3" and "3" both show as "Q3". */
+export function displayNumber(n: string): string {
+  return `Q${n.replace(/^q\.?\s*/i, '')}`;
 }

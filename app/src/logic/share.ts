@@ -1,4 +1,4 @@
-// Pure export/import helpers for .pyqed.json files (AGENTS.md §10 Sharing). No file-system imports.
+// Pure export/import helpers for .pyqed.json files. No file-system imports.
 import { migrate, newId, Subject, CURRENT_VERSION } from './subject';
 
 export type ShareFile = {

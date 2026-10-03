@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   getSubject,
   saveSubject,
   exportSubjectFile,
+  deletePaperImages,
   summarize,
   summaryLine,
   Subject,
@@ -28,13 +29,17 @@ import {
   unitWeight,
   highPriorityUnitIds,
   maxUnitWeight,
-  topicAvgMarks,
+  topicWeight,
   distinctYears,
-  timesAsked,
-  askedYears,
   collapseRepeats,
+  groupIndex,
 } from '../../src/logic/ranking';
 import * as Sharing from 'expo-sharing';
+import * as Haptics from 'expo-haptics';
+import { QuestionCard } from '../../src/components/QuestionCard';
+import { getApiSettings } from '../../src/ai/settings';
+import { labelQuestions } from '../../src/ai/labelQuestions';
+import { groupRepeats } from '../../src/ai/groupRepeats';
 import { topicProgress } from '../../src/logic/practice';
 
 async function shareSubject(s: Subject, withImages: boolean) {
@@ -47,6 +52,51 @@ async function shareSubject(s: Subject, withImages: boolean) {
 }
 
 const TABS = ['Topics', 'All questions', 'Papers'] as const;
+const PAGE_SIZE = 40; // cards rendered at a time in All questions
+
+
+function topicNameOf(units: Unit[], topicId: string | null): string | null {
+  if (!topicId) return null;
+  for (const u of units) {
+    const t = u.topics.find((x) => x.id === topicId);
+    if (t) return t.name;
+  }
+  return null;
+}
+
+/** One labelled, horizontally scrolling row of single-select chips. Tapping the active chip clears it. */
+function FilterRow<K extends string>({ label, options, value, onSelect }: {
+  label: string;
+  options: { key: K; label: string }[];
+  value: K | undefined;
+  onSelect: (key: K | undefined) => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+      <Text style={{ width: 44, fontSize: FontSize.tiny + 1, fontWeight: '600', color: colors.textSecondary }}>{label}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.xs }}>
+        {options.map((o) => {
+          const active = value === o.key;
+          return (
+            <TouchableOpacity
+              key={o.key}
+              hitSlop={{ top: 6, bottom: 6 }}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? colors.accent : colors.card, borderColor: active ? colors.accent : colors.border },
+              ]}
+              onPress={() => onSelect(active ? undefined : o.key)}
+              accessibilityLabel={`${label} ${o.label}`}
+            >
+              <Text style={[styles.filterChipText, { color: active ? colors.accentText : colors.text }]}>{o.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
 
 export default function SubjectScreen() {
   const colors = useThemeColors();
@@ -59,15 +109,18 @@ export default function SubjectScreen() {
   // Sorting and Filtering state for All Questions tab
   const [sortBy, setSortBy] = useState<SortOption>('marks');
   const [filters, setFilters] = useState<QuestionFilters>({});
-  const [versionsOpenIds, setVersionsOpenIds] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [relabelling, setRelabelling] = useState(false);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
+  const initialisedRef = useRef(false);
   const load = useCallback(async () => {
     if (!id) return;
     const s = await getSubject(id);
     setSubject(s);
-    // Expand all units by default on load
-    if (s) {
+    // Expand all units the first time only, so returning from a topic keeps the user's collapsed units
+    if (s && !initialisedRef.current) {
+      initialisedRef.current = true;
       setExpandedUnitIds(new Set(s.units.map((u) => u.id)));
     }
   }, [id]);
@@ -77,6 +130,11 @@ export default function SubjectScreen() {
       load();
     }, [load]),
   );
+
+  // Show the first page again whenever the list changes
+  useEffect(() => setVisibleCount(PAGE_SIZE), [filters, sortBy]);
+
+  const groups = useMemo(() => groupIndex(subject?.questions ?? []), [subject]);
 
   if (!subject) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;
@@ -111,6 +169,30 @@ export default function SubjectScreen() {
 
   // Unassigned questions
   const unassignedQs = subject.questions.filter((q) => q.topicId === null);
+
+  // Try again to match unassigned questions to topics (e.g. after a failed run or after adding topics)
+  const relabelUnassigned = async () => {
+    const { provider, apiKey, modelId } = await getApiSettings();
+    if (!apiKey.trim()) {
+      Alert.alert('API key needed', 'Add your API key in Settings, then try again.');
+      return;
+    }
+    setRelabelling(true);
+    try {
+      const ids = unassignedQs.filter((q) => !q.editedByUser).map((q) => q.id);
+      let next: Subject = { ...subject, questions: await labelQuestions(subject, ids, provider, apiKey, modelId) };
+      next = { ...next, questions: await groupRepeats(next, ids, provider, apiKey, modelId) };
+      await saveSubject(next);
+      setSubject(next);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const left = next.questions.filter((q) => q.topicId === null).length;
+      Alert.alert('Done', left === 0 ? 'Every question now has a topic.' : `${left} still couldn't be matched. You can move them by hand.`);
+    } catch (e: any) {
+      Alert.alert('Could not sort questions', e?.message || 'Something went wrong.');
+    } finally {
+      setRelabelling(false);
+    }
+  };
 
   // All questions tab: apply filters then sort
   const filteredQs = filterQuestions(subject.questions, filters);
@@ -170,7 +252,6 @@ export default function SubjectScreen() {
       >
         {/* Subject Header */}
         <View style={styles.headerBlock}>
-          <Text style={[styles.title, { color: colors.text }]}>{subject.name}</Text>
           <Text style={[styles.summaryLine, { color: colors.textSecondary }]}>
             {[subject.code, summaryLine(summarize(subject))].filter(Boolean).join(' · ')}
           </Text>
@@ -290,7 +371,7 @@ export default function SubjectScreen() {
                             <Text style={[styles.unitStats, { color: colors.textSecondary }]}>
                               {uQuestions.length} question{uQuestions.length !== 1 ? 's' : ''}
                               {paperCount > 0
-                                ? ` · avg ${uWeight.toFixed(1)} marks/paper`
+                                ? ` · ~${uWeight.toFixed(1)} marks/paper`
                                 : ''}
                             </Text>
 
@@ -332,7 +413,7 @@ export default function SubjectScreen() {
                                 const tQuestions = subject.questions.filter(
                                   (q) => q.topicId === t.id,
                                 );
-                                const avgMarks = topicAvgMarks(
+                                const avgMarks = topicWeight(
                                   t.id,
                                   subject.questions,
                                   paperCount,
@@ -380,15 +461,15 @@ export default function SubjectScreen() {
                                                 { color: colors.amber },
                                               ]}
                                             >
-                                              Low conf
+                                              Low confidence
                                             </Text>
                                           </View>
                                         )}
                                       </View>
                                       <Text style={[styles.topicSub, { color: colors.textSecondary }]}>
-                                        {tQuestions.length} q
+                                        {tQuestions.length} question{tQuestions.length !== 1 ? 's' : ''}
                                         {paperCount > 0
-                                          ? ` · avg ${avgMarks.toFixed(1)} m/paper`
+                                          ? ` · ~${avgMarks.toFixed(1)} marks/paper`
                                           : ''}
                                         {tQuestions.length > 0
                                           ? ` · ${Math.round(
@@ -449,6 +530,18 @@ export default function SubjectScreen() {
                     <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
                   </TouchableOpacity>
                 )}
+                {unassignedQs.length > 0 && (
+                  <TouchableOpacity
+                    style={[styles.btn, { borderColor: colors.accent, borderWidth: 1, opacity: relabelling ? 0.6 : 1 }]}
+                    onPress={relabelUnassigned}
+                    disabled={relabelling}
+                    accessibilityLabel="Sort unassigned questions into topics"
+                  >
+                    <Text style={{ color: colors.accent, fontWeight: '700' }}>
+                      {relabelling ? 'Sorting…' : 'Sort unassigned into topics'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
@@ -478,460 +571,127 @@ export default function SubjectScreen() {
               )
             ) : (
               <>
-                {/* Sort Selector Bar */}
-                <View style={styles.sortSelectorContainer}>
-                  <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                    SORT BY
-                  </Text>
+                <View style={{ gap: Spacing.xs }}>
+                  <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>SORT BY</Text>
                   <View style={[styles.sortSegment, { backgroundColor: colors.chip }]}>
                     {(
                       [
                         { key: 'marks', label: 'Marks' },
-                        { key: 'timesAsked', label: 'Frequency' },
+                        { key: 'timesAsked', label: 'Times asked' },
                         { key: 'year', label: 'Year' },
                         { key: 'unitOrder', label: 'Unit' },
                       ] as const
-                    ).map((s) => (
+                    ).map((o) => (
                       <TouchableOpacity
-                        key={s.key}
-                        style={[
-                          styles.sortSegmentItem,
-                          sortBy === s.key && { backgroundColor: colors.card },
-                        ]}
-                        onPress={() => setSortBy(s.key)}
-                        accessibilityLabel={`Sort by ${s.label}`}
+                        key={o.key}
+                        style={[styles.sortSegmentItem, sortBy === o.key && { backgroundColor: colors.card }]}
+                        onPress={() => setSortBy(o.key)}
+                        accessibilityLabel={`Sort by ${o.label}`}
                       >
                         <Text
-                          style={[
-                            styles.sortSegmentText,
-                            {
-                              color: sortBy === s.key ? colors.text : colors.textSecondary,
-                              fontWeight: sortBy === s.key ? '700' : '500',
-                            },
-                          ]}
+                          style={{
+                            fontSize: FontSize.caption,
+                            color: sortBy === o.key ? colors.text : colors.textSecondary,
+                            fontWeight: sortBy === o.key ? '700' : '500',
+                          }}
                         >
-                          {s.label}
+                          {o.label}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </View>
 
-                {/* Filter Chips Scroll View */}
-                <View style={styles.filterSection}>
+                {/* Filters: one labelled row per kind */}
+                <View style={{ gap: Spacing.xs }}>
                   <View style={styles.filterHeaderRow}>
-                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                      FILTERS
-                    </Text>
+                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>FILTERS</Text>
                     {hasActiveFilters && (
-                      <TouchableOpacity
-                        onPress={() => setFilters({})}
-                        accessibilityLabel="Clear all filters"
-                      >
-                        <Text style={[styles.clearFilterText, { color: colors.accent }]}>
-                          Reset all
-                        </Text>
+                      <TouchableOpacity onPress={() => setFilters({})} accessibilityLabel="Clear all filters" style={{ minHeight: 32, justifyContent: 'center' }}>
+                        <Text style={[styles.clearFilterText, { color: colors.accent }]}>Reset all</Text>
                       </TouchableOpacity>
                     )}
                   </View>
 
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.filterChipsScroll}
-                  >
-                    {/* Unit Filters */}
-                    {subject.units.map((u) => {
-                      const active = filters.unitId === u.id;
-                      return (
-                        <TouchableOpacity
-                          key={u.id}
-                          style={[
-                            styles.filterChip,
-                            {
-                              backgroundColor: active ? colors.accent : colors.card,
-                              borderColor: active ? colors.accent : colors.border,
-                            },
-                          ]}
-                          onPress={() =>
-                            setFilters((prev) => ({
-                              ...prev,
-                              unitId: active ? undefined : u.id,
-                            }))
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              { color: active ? colors.accentText : colors.text },
-                            ]}
-                          >
-                            {u.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Unassigned Filter */}
-                    {unassignedQs.length > 0 && (
-                      <TouchableOpacity
-                        style={[
-                          styles.filterChip,
-                          {
-                            backgroundColor:
-                              filters.unitId === 'unassigned'
-                                ? colors.amber
-                                : colors.card,
-                            borderColor:
-                              filters.unitId === 'unassigned'
-                                ? colors.amber
-                                : colors.border,
-                          },
-                        ]}
-                        onPress={() =>
-                          setFilters((prev) => ({
-                            ...prev,
-                            unitId: prev.unitId === 'unassigned' ? undefined : 'unassigned',
-                          }))
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.filterChipText,
-                            {
-                              color:
-                                filters.unitId === 'unassigned'
-                                  ? '#FFFFFF'
-                                  : colors.text,
-                            },
-                          ]}
-                        >
-                          Unassigned ({unassignedQs.length})
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Question Type Filter */}
-                    {(['mcq', 'short', 'long', 'other'] as const).map((t) => {
-                      const active = filters.type === t;
-                      return (
-                        <TouchableOpacity
-                          key={t}
-                          style={[
-                            styles.filterChip,
-                            {
-                              backgroundColor: active ? colors.accent : colors.card,
-                              borderColor: active ? colors.accent : colors.border,
-                            },
-                          ]}
-                          onPress={() =>
-                            setFilters((prev) => ({
-                              ...prev,
-                              type: active ? undefined : t,
-                            }))
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              { color: active ? colors.accentText : colors.text },
-                            ]}
-                          >
-                            {t.toUpperCase()}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Marks Filter */}
-                    {(
-                      [
-                        { key: 'low', label: '≤ 2 marks' },
-                        { key: 'mid', label: '3–5 marks' },
-                        { key: 'high', label: '10+ marks' },
-                      ] as const
-                    ).map((m) => {
-                      const active = filters.marksRange === m.key;
-                      return (
-                        <TouchableOpacity
-                          key={m.key}
-                          style={[
-                            styles.filterChip,
-                            {
-                              backgroundColor: active ? colors.accent : colors.card,
-                              borderColor: active ? colors.accent : colors.border,
-                            },
-                          ]}
-                          onPress={() =>
-                            setFilters((prev) => ({
-                              ...prev,
-                              marksRange: active ? undefined : m.key,
-                            }))
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              { color: active ? colors.accentText : colors.text },
-                            ]}
-                          >
-                            {m.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Years Filter */}
-                    {availableYears.map((yr) => {
-                      const active = filters.year === yr;
-                      return (
-                        <TouchableOpacity
-                          key={yr}
-                          style={[
-                            styles.filterChip,
-                            {
-                              backgroundColor: active ? colors.accent : colors.card,
-                              borderColor: active ? colors.accent : colors.border,
-                            },
-                          ]}
-                          onPress={() =>
-                            setFilters((prev) => ({
-                              ...prev,
-                              year: active ? undefined : yr,
-                            }))
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              { color: active ? colors.accentText : colors.text },
-                            ]}
-                          >
-                            {yr}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Needs Review Filter */}
-                    <TouchableOpacity
-                      style={[
-                        styles.filterChip,
-                        {
-                          backgroundColor: filters.needsReview
-                            ? colors.amber
-                            : colors.card,
-                          borderColor: filters.needsReview
-                            ? colors.amber
-                            : colors.border,
-                        },
-                      ]}
-                      onPress={() =>
-                        setFilters((prev) => ({
-                          ...prev,
-                          needsReview: !prev.needsReview ? true : undefined,
-                        }))
-                      }
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          {
-                            color: filters.needsReview
-                              ? '#FFFFFF'
-                              : colors.amber,
-                          },
-                        ]}
-                      >
-                        Needs review
-                      </Text>
-                    </TouchableOpacity>
-                  </ScrollView>
+                  <FilterRow
+                    label="Unit"
+                    options={[
+                      ...subject.units.map((u) => ({ key: u.id, label: u.name })),
+                      ...(unassignedQs.length > 0 ? [{ key: 'unassigned', label: `Unassigned (${unassignedQs.length})` }] : []),
+                    ]}
+                    value={filters.unitId ?? undefined}
+                    onSelect={(unitId) => setFilters((f) => ({ ...f, unitId }))}
+                  />
+                  <FilterRow
+                    label="Type"
+                    options={(['mcq', 'short', 'long', 'other'] as const).map((t) => ({ key: t, label: t.toUpperCase() }))}
+                    value={filters.type ?? undefined}
+                    onSelect={(type) => setFilters((f) => ({ ...f, type }))}
+                  />
+                  <FilterRow
+                    label="Marks"
+                    options={[
+                      { key: 'low', label: '≤ 2' },
+                      { key: 'mid', label: '3–5' },
+                      { key: 'high', label: '10+' },
+                    ]}
+                    value={filters.marksRange ?? undefined}
+                    onSelect={(marksRange) => setFilters((f) => ({ ...f, marksRange }))}
+                  />
+                  {availableYears.length > 0 && (
+                    <FilterRow
+                      label="Year"
+                      options={availableYears.map((y) => ({ key: String(y), label: String(y) }))}
+                      value={filters.year != null ? String(filters.year) : undefined}
+                      onSelect={(y) => setFilters((f) => ({ ...f, year: y ? Number(y) : undefined }))}
+                    />
+                  )}
+                  <FilterRow
+                    label="Show"
+                    options={[{ key: 'review', label: 'Needs review' }]}
+                    value={filters.needsReview ? 'review' : undefined}
+                    onSelect={(v) => setFilters((f) => ({ ...f, needsReview: v ? true : undefined }))}
+                  />
                 </View>
 
-                {/* Filter count indicator */}
-                <View style={styles.resultsInfoRow}>
-                  <Text style={[styles.resultsInfoText, { color: colors.textSecondary }]}>
-                    Showing {displayedQuestions.length} of {subject.questions.length} questions
-                  </Text>
-                </View>
+                <Text style={[styles.resultsInfoText, { color: colors.textSecondary }]}>
+                  Showing {displayedQuestions.length} of {subject.questions.length} questions
+                </Text>
 
-                {/* Questions Cards */}
-                {collapseRepeats(displayedQuestions).map(([q, ...otherVersions]) => {
-                  const times = timesAsked(q, subject.questions);
-                  const years = askedYears(q, subject.questions);
-                  const versionsOpen = versionsOpenIds.has(q.id);
-                  // Find topic name
-                  let topicName: string | null = null;
-                  if (q.topicId) {
-                    for (const u of subject.units) {
-                      const t = u.topics.find((item) => item.id === q.topicId);
-                      if (t) {
-                        topicName = t.name;
-                        break;
-                      }
-                    }
-                  }
-
+                {(() => {
+                  const cards = collapseRepeats(displayedQuestions);
                   return (
-                    <TouchableOpacity
-                      key={q.id}
-                      style={[
-                        styles.questionCard,
-                        {
-                          backgroundColor: colors.card,
-                          borderColor: q.needsReview ? colors.amber : colors.border,
-                        },
-                      ]}
-                      onPress={() => {
-                        if (q.topicId) {
-                          router.push({
-                            pathname: '/subject/topic',
-                            params: { subjectId: subject.id, topicId: q.topicId },
-                          });
-                        } else {
-                          router.push({
-                            pathname: '/subject/topic',
-                            params: { subjectId: subject.id, topicId: 'unassigned' },
-                          });
-                        }
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.qHeaderRow}>
-                        <View style={styles.chipsRow}>
-                          <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                            <Text style={[styles.badgeText, { color: colors.text }]}>
-                              Q{q.number}
-                            </Text>
-                          </View>
-                          {q.marks !== null ? (
-                            <View
-                              style={[
-                                styles.badge,
-                                {
-                                  backgroundColor: colors.surface,
-                                  borderColor: colors.border,
-                                  borderWidth: 1,
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.badgeText, { color: colors.text }]}>
-                                {q.marks} m
-                              </Text>
-                            </View>
-                          ) : (
-                            <View style={[styles.badge, { backgroundColor: colors.amberBg }]}>
-                              <Text style={[styles.badgeText, { color: colors.amber }]}>
-                                ? marks
-                              </Text>
-                            </View>
-                          )}
-                          <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                            <Text style={[styles.badgeText, { color: colors.textSecondary }]}>
-                              {q.type}
-                            </Text>
-                          </View>
-                          {times > 1 && (
-                            <View
-                              style={[
-                                styles.badge,
-                                {
-                                  backgroundColor: colors.amberBg,
-                                  borderColor: colors.amber,
-                                  borderWidth: 1,
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.badgeText, { color: colors.amber }]}>
-                                Asked {times}×{years.length > 0 ? ` (${years.join(', ')})` : ''}
-                              </Text>
-                            </View>
-                          )}
-                          {q.year && (
-                            <View style={[styles.badge, { backgroundColor: colors.chip }]}>
-                              <Text style={[styles.badgeText, { color: colors.textSecondary }]}>
-                                {q.year}
-                              </Text>
-                            </View>
-                          )}
-                          {q.topicConfidence === 'low' && !q.editedByUser && (
-                            <View style={[styles.badge, { backgroundColor: colors.amberBg }]}>
-                              <Text style={[styles.badgeText, { color: colors.amber }]}>
-                                Low conf
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-                      </View>
-
-                      <Text
-                        style={[styles.questionBody, { color: colors.text }]}
-                        numberOfLines={3}
-                      >
-                        {q.text}
-                      </Text>
-
-                      <View style={styles.cardFooter}>
-                        {topicName ? (
-                          <View style={[styles.topicChip, { backgroundColor: colors.chip }]}>
-                            <Ionicons name="folder-outline" size={12} color={colors.accent} />
-                            <Text
-                              style={[styles.topicChipText, { color: colors.accent }]}
-                              numberOfLines={1}
-                            >
-                              {topicName}
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={[styles.topicChip, { backgroundColor: colors.amberBg }]}>
-                            <Text style={[styles.topicChipText, { color: colors.amber }]}>
-                              Unassigned
-                            </Text>
-                          </View>
-                        )}
-                        {q.group ? (
-                          <Text style={[styles.groupLabel, { color: colors.textSecondary }]}>
-                            {q.group}
+                    <>
+                      {cards.slice(0, visibleCount).map(([q, ...otherVersions]) => (
+                        <QuestionCard
+                          key={q.id}
+                          q={q}
+                          versions={otherVersions}
+                          all={subject.questions}
+                          groups={groups}
+                          showTopic
+                          topicName={topicNameOf(subject.units, q.topicId)}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/subject/topic',
+                              params: { subjectId: subject.id, topicId: q.topicId ?? 'unassigned' },
+                            })
+                          }
+                        />
+                      ))}
+                      {cards.length > visibleCount && (
+                        <TouchableOpacity
+                          style={[styles.btn, { borderColor: colors.border, borderWidth: 1 }]}
+                          onPress={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                        >
+                          <Text style={{ color: colors.accent, fontWeight: '700' }}>
+                            Show {Math.min(PAGE_SIZE, cards.length - visibleCount)} more
                           </Text>
-                        ) : null}
-                      </View>
-
-                      {/* Other versions from the same repeat group */}
-                      {otherVersions.length > 0 && (
-                        <View style={{ marginTop: Spacing.xs }}>
-                          <TouchableOpacity
-                            onPress={() =>
-                              setVersionsOpenIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(q.id)) next.delete(q.id);
-                                else next.add(q.id);
-                                return next;
-                              })
-                            }
-                            accessibilityLabel="Toggle other versions of this question"
-                          >
-                            <Text style={{ color: colors.accent, fontWeight: '600' }}>
-                              {versionsOpen
-                                ? 'Hide other versions'
-                                : `Show ${otherVersions.length} other version${otherVersions.length > 1 ? 's' : ''}`}
-                            </Text>
-                          </TouchableOpacity>
-                          {versionsOpen &&
-                            otherVersions.map((v) => (
-                              <Text
-                                key={v.id}
-                                style={[styles.groupLabel, { color: colors.textSecondary, marginTop: 4 }]}
-                              >
-                                {v.year ?? '?'} · Q{v.number} · {v.text}
-                              </Text>
-                            ))}
-                        </View>
+                        </TouchableOpacity>
                       )}
-                    </TouchableOpacity>
+                    </>
                   );
-                })}
+                })()}
               </>
             )}
           </View>
@@ -969,7 +729,7 @@ export default function SubjectScreen() {
                   }}
                 >
                   <Text style={[styles.h3, { color: colors.text }]}>
-                    Past Papers ({subject.papers.length})
+                    Papers ({subject.papers.length})
                   </Text>
                   <TouchableOpacity
                     style={[styles.smallBtn, { backgroundColor: colors.accent }]}
@@ -996,8 +756,11 @@ export default function SubjectScreen() {
                 {subject.papers.map((p) => {
                   const qCount = subject.questions.filter((q) => q.paperId === p.id).length;
                   return (
-                    <View
+                    <TouchableOpacity
                       key={p.id}
+                      activeOpacity={0.8}
+                      onPress={() => router.push({ pathname: '/subject/paper', params: { subjectId: subject.id, paperId: p.id } })}
+                      accessibilityLabel={`Review ${p.year ?? p.title ?? 'paper'}`}
                       style={[
                         styles.paperCard,
                         {
@@ -1020,7 +783,7 @@ export default function SubjectScreen() {
                       <TouchableOpacity
                         onPress={() => {
                           Alert.alert(
-                            'Delete Paper?',
+                            'Delete paper?',
                             `Remove this paper and its ${qCount} questions from the subject?`,
                             [
                               { text: 'Cancel', style: 'cancel' },
@@ -1036,18 +799,19 @@ export default function SubjectScreen() {
                                     ),
                                   };
                                   await saveSubject(updatedSubject);
+                                  deletePaperImages(subject.id, p.id);
                                   setSubject(updatedSubject);
                                 },
                               },
                             ],
                           );
                         }}
-                        style={{ padding: Spacing.sm }}
+                        style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
                         accessibilityLabel="Delete paper"
                       >
                         <Ionicons name="trash-outline" size={20} color={colors.red} />
                       </TouchableOpacity>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -1100,10 +864,6 @@ const styles = StyleSheet.create({
   headerBlock: {
     gap: 4,
     marginBottom: Spacing.xs,
-  },
-  title: {
-    fontSize: FontSize.h1,
-    fontWeight: '700',
   },
   summaryLine: {
     fontSize: FontSize.caption,
@@ -1227,9 +987,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     paddingVertical: Spacing.xs,
   },
-  sortSelectorContainer: {
-    gap: Spacing.xs,
-  },
   sectionLabel: {
     fontSize: FontSize.tiny,
     fontWeight: '700',
@@ -1246,12 +1003,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: BorderRadius.button - 3,
   },
-  sortSegmentText: {
-    fontSize: FontSize.caption,
-  },
-  filterSection: {
-    gap: Spacing.xs,
-  },
   filterHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1260,10 +1011,6 @@ const styles = StyleSheet.create({
   clearFilterText: {
     fontSize: FontSize.caption,
     fontWeight: '600',
-  },
-  filterChipsScroll: {
-    gap: Spacing.xs,
-    paddingVertical: Spacing.xs,
   },
   filterChip: {
     paddingHorizontal: Spacing.md,
@@ -1275,38 +1022,8 @@ const styles = StyleSheet.create({
     fontSize: FontSize.caption,
     fontWeight: '600',
   },
-  resultsInfoRow: {
-    paddingHorizontal: Spacing.xs,
-  },
   resultsInfoText: {
     fontSize: FontSize.caption,
-  },
-  questionCard: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.xs,
-  },
-  qHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-    flex: 1,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.chip,
-  },
-  badgeText: {
-    fontSize: FontSize.tiny + 1,
-    fontWeight: '700',
   },
   miniBadge: {
     paddingHorizontal: 6,
@@ -1316,34 +1033,6 @@ const styles = StyleSheet.create({
   miniBadgeText: {
     fontSize: FontSize.tiny,
     fontWeight: '700',
-  },
-  questionBody: {
-    fontSize: FontSize.body - 1,
-    lineHeight: 22,
-    marginTop: 2,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  topicChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.chip,
-    maxWidth: '70%',
-  },
-  topicChipText: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-  },
-  groupLabel: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
   },
   paperCard: {
     flexDirection: 'row',

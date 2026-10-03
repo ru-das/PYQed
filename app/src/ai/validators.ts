@@ -1,6 +1,5 @@
 /**
- * Hand-written validators for AI responses. AGENTS.md §7:
- * "Always extract, JSON.parse, and validate with a hand-written validator per schema."
+ * Hand-written validators for AI responses: extract the JSON, parse it, then check its shape here.
  */
 
 export type ValidationResult<T> =
@@ -31,13 +30,8 @@ export type PageQuestionsResponse = {
   questions: RawExtractedQuestion[];
 };
 
-export type ProcessedQuestion = RawExtractedQuestion & {
-  type: 'mcq' | 'short' | 'long' | 'other';
-  needsReview: boolean;
-};
-
 /**
- * Derives question type from marks and options by code (AGENTS.md §8.2):
+ * Derives question type from marks and options by code:
  * has_options -> mcq
  * marks <= 3  -> short
  * marks > 3   -> long
@@ -54,7 +48,7 @@ export function deriveQuestionType(
 }
 
 /**
- * Checks if question needs manual user review (AGENTS.md §8.2):
+ * Checks if question needs manual user review:
  * marks === null or text < 10 chars.
  */
 export function checkNeedsReview(text: string, marks: number | null): boolean {

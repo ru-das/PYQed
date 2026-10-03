@@ -1,5 +1,5 @@
 /**
- * AI prompts. AGENTS.md §8.
+ * AI prompts.
  * Keep prompts general (for any university).
  */
 
@@ -115,18 +115,19 @@ Return ONLY this JSON (no extra text):
 }
 
 /**
- * §8.4 — Repeat groups prompt.
- * Input: all questions of ONE topic as "QuestionID | year | text".
+ * Repeat groups prompt.
+ * Input: questions of one or more topics, listed under "Topic: name" headings as "QuestionID | year | text".
  * Output: groups of question IDs that ask essentially the same thing.
  */
 export function repeatGroupsPrompt(questions: string): string {
-  return `You are finding repeated questions in university exam papers. All questions below belong to the same syllabus topic.
+  return `You are finding repeated questions in university exam papers. The questions below are listed under their syllabus topic.
 
 Questions (format: QuestionID | Year | QuestionText):
 ${questions}
 
 Rules:
 - Group questions that ask essentially the same thing, even if worded differently or with different numbers.
+- Only group questions that are under the same topic heading. Never mix topics in one group.
 - Do NOT group questions that are merely about the same topic but ask for different things.
 - Each question ID may appear in at most one group. Every group needs at least 2 IDs.
 - Leave out questions that have no repeat. Use ONLY the IDs listed above.

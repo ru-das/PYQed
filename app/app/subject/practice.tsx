@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Switch } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { getSubject, saveSubject, Subject, Question } from '../../src/store/subjects';
 import { QuestionFilters, askedYears, highPriorityUnitIds } from '../../src/logic/ranking';
-import { practicePool, weightedShuffle, recordAnswer, topicProgress } from '../../src/logic/practice';
+import { practicePool, weightedShuffle, recordAnswer, topicProgress, UNASSIGNED } from '../../src/logic/practice';
 
 const TYPES: Question['type'][] = ['mcq', 'short', 'long', 'other'];
 const MARKS: { key: NonNullable<QuestionFilters['marksRange']>; label: string }[] = [
@@ -37,10 +37,15 @@ export default function PracticeScreen() {
     }, [subjectId]),
   );
 
+  const unassignedCount = subject?.questions.filter((q) => q.topicId === null).length ?? 0;
   const allTopicIds = useMemo(
-    () => new Set(subject?.units.flatMap((u) => u.topics.map((t) => t.id)) ?? []),
-    [subject],
+    () => new Set([
+      ...(subject?.units.flatMap((u) => u.topics.map((t) => t.id)) ?? []),
+      ...(unassignedCount > 0 ? [UNASSIGNED] : []),
+    ]),
+    [subject, unassignedCount],
   );
+  const answering = useRef(false);
   const topicIds = selected ?? allTopicIds;
 
   if (!subject) return <View style={[styles.container, { backgroundColor: colors.background }]} />;
@@ -70,12 +75,11 @@ export default function PracticeScreen() {
   };
 
   const answer = async (a: 'got' | 'revise') => {
+    if (answering.current) return; // ignore a second tap on the same card
+    answering.current = true;
     const q = deck[index];
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Save right away so progress survives quitting mid-session.
-    const updated = { ...subject, practice: recordAnswer(subject.practice, q.id, a) };
-    setSubject(updated);
-    await saveSubject(updated);
+    // Move on first, then save, so the next card shows instantly.
     setTally((t) => ({ ...t, [a]: t[a] + 1 }));
     if (a === 'revise') setRevised((r) => [...r, q]);
     if (index + 1 >= deck.length) {
@@ -83,6 +87,14 @@ export default function PracticeScreen() {
       setPhase('summary');
     } else {
       setIndex(index + 1);
+    }
+    // Save right away so progress survives quitting mid-session.
+    const updated = { ...subject, practice: recordAnswer(subject.practice, q.id, a) };
+    setSubject(updated);
+    try {
+      await saveSubject(updated);
+    } finally {
+      answering.current = false;
     }
   };
 
@@ -110,7 +122,7 @@ export default function PracticeScreen() {
           {index + 1} / {deck.length}
         </Text>
         <View style={[styles.track, { backgroundColor: colors.chip }]}>
-          <View style={[styles.fill, { backgroundColor: colors.accent, width: `${(index / deck.length) * 100}%` }]} />
+          <View style={[styles.fill, { backgroundColor: colors.accent, width: `${((index + 1) / deck.length) * 100}%` }]} />
         </View>
         <ScrollView
           style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -242,6 +254,18 @@ export default function PracticeScreen() {
               </View>
             );
           })}
+
+        {unassignedCount > 0 && (
+          <TouchableOpacity
+            style={[styles.card, styles.row, { backgroundColor: colors.card, borderColor: colors.border, padding: Spacing.md }]}
+            onPress={() => toggleTopic(UNASSIGNED)}
+            accessibilityLabel="Toggle unassigned questions"
+          >
+            <Ionicons name={topicIds.has(UNASSIGNED) ? 'checkbox' : 'square-outline'} size={24} color={colors.accent} />
+            <Text style={{ flex: 1, color: colors.text, fontSize: FontSize.h3, fontWeight: '700' }}>Unassigned</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: FontSize.caption }}>{unassignedCount}</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>

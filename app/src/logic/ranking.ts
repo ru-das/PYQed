@@ -1,10 +1,29 @@
 /**
- * Pure ranking, sorting, and filtering logic (AGENTS.md §9).
+ * Pure ranking, sorting, and filtering logic.
  * Every number shown in the app is computed here — never from AI.
  */
 import { Question, Unit, newId } from './subject';
 
 // ─── Times Asked ────────────────────────────────────────────────
+
+/** repeatGroupId -> its questions. Build once per render; passing it avoids re-filtering all questions per card. */
+export type GroupIndex = Map<string, Question[]>;
+
+export function groupIndex(allQuestions: Question[]): GroupIndex {
+  const idx: GroupIndex = new Map();
+  for (const q of allQuestions) {
+    if (!q.repeatGroupId) continue;
+    const g = idx.get(q.repeatGroupId);
+    if (g) g.push(q);
+    else idx.set(q.repeatGroupId, [q]);
+  }
+  return idx;
+}
+
+function groupOf(question: Question, allQuestions: Question[], groups?: GroupIndex): Question[] {
+  if (!question.repeatGroupId) return [question];
+  return (groups ?? groupIndex(allQuestions)).get(question.repeatGroupId) ?? [question];
+}
 
 /**
  * Times asked = number of distinct papers containing a question
@@ -13,12 +32,10 @@ import { Question, Unit, newId } from './subject';
 export function timesAsked(
   question: Question,
   allQuestions: Question[],
+  groups?: GroupIndex,
 ): number {
   if (!question.repeatGroupId) return 1;
-  const group = allQuestions.filter(
-    (q) => q.repeatGroupId === question.repeatGroupId,
-  );
-  const paperIds = new Set(group.map((q) => q.paperId));
+  const paperIds = new Set(groupOf(question, allQuestions, groups).map((q) => q.paperId));
   return Math.max(1, paperIds.size);
 }
 
@@ -28,12 +45,10 @@ export function timesAsked(
 export function askedYears(
   question: Question,
   allQuestions: Question[],
+  groups?: GroupIndex,
 ): number[] {
-  const group = question.repeatGroupId
-    ? allQuestions.filter((q) => q.repeatGroupId === question.repeatGroupId)
-    : [question];
   const years = new Set<number>();
-  for (const q of group) if (q.year !== null) years.add(q.year);
+  for (const q of groupOf(question, allQuestions, groups)) if (q.year !== null) years.add(q.year);
   return Array.from(years).sort((a, b) => a - b);
 }
 
@@ -102,17 +117,6 @@ export function topicWeight(
   return totalMarks / paperCount;
 }
 
-/**
- * Average marks per paper for a topic (display helper).
- */
-export function topicAvgMarks(
-  topicId: string,
-  questions: Question[],
-  paperCount: number,
-): number {
-  return topicWeight(topicId, questions, paperCount);
-}
-
 // ─── Unit Weight ────────────────────────────────────────────────
 
 /**
@@ -175,6 +179,7 @@ export function defaultSort(
   questions: Question[],
   allQuestions: Question[] = questions,
 ): Question[] {
+  const groups = groupIndex(allQuestions);
   return [...questions].sort((a, b) => {
     // 1. Marks desc (null sorts last)
     const marksA = a.marks ?? -Infinity;
@@ -182,8 +187,8 @@ export function defaultSort(
     if (marksB !== marksA) return marksB - marksA;
 
     // 2. Times asked desc
-    const taA = timesAsked(a, allQuestions);
-    const taB = timesAsked(b, allQuestions);
+    const taA = timesAsked(a, allQuestions, groups);
+    const taB = timesAsked(b, allQuestions, groups);
     if (taB !== taA) return taB - taA;
 
     // 3. Most recent year desc
@@ -204,6 +209,7 @@ export function sortQuestions(
   units: Unit[] = [],
 ): Question[] {
   const sorted = [...questions];
+  const groups = groupIndex(allQuestions);
   switch (sortBy) {
     case 'marks':
       return sorted.sort((a, b) => {
@@ -214,7 +220,7 @@ export function sortQuestions(
       });
     case 'timesAsked':
       return sorted.sort((a, b) => {
-        const taDiff = timesAsked(b, allQuestions) - timesAsked(a, allQuestions);
+        const taDiff = timesAsked(b, allQuestions, groups) - timesAsked(a, allQuestions, groups);
         if (taDiff !== 0) return taDiff;
         return (b.marks ?? -Infinity) - (a.marks ?? -Infinity);
       });
@@ -297,21 +303,6 @@ export function filterQuestions(
 }
 
 // ─── Helpers for UI ─────────────────────────────────────────────
-
-/**
- * Count of questions per topic.
- */
-export function questionCountByTopic(
-  questions: Question[],
-): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const q of questions) {
-    if (q.topicId) {
-      map.set(q.topicId, (map.get(q.topicId) ?? 0) + 1);
-    }
-  }
-  return map;
-}
 
 /**
  * Get distinct sorted descending years from questions.

@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { listSubjects, importSubjectFile, summaryLine, SubjectMeta } from '../../src/store/subjects';
 import { Ionicons } from '@expo/vector-icons';
+import { Logo } from '../../src/components/Logo';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 
 export default function HomeScreen() {
@@ -93,13 +94,8 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
-        <View
-          style={[
-            styles.iconCircle,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <Ionicons name="documents-outline" size={44} color={colors.accent} />
+        <View style={{ marginBottom: Spacing.lg }}>
+          <Logo size={112} />
         </View>
 
         <Text style={[styles.title, { color: colors.text }]}>No subjects yet</Text>
@@ -211,15 +207,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-  },
-  iconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
   },
   title: {
     fontSize: FontSize.h1,

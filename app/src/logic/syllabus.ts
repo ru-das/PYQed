@@ -1,5 +1,5 @@
 /**
- * Pure syllabus logic and merging (AGENTS.md §8.1, §9, §13).
+ * Pure syllabus logic and merging.
  * No React Native dependencies — runs in pure Node/tests.
  */
 

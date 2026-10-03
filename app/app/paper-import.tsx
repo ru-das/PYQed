@@ -6,33 +6,30 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Image,
   Alert,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
-import {
-  IMAGE_LONG_EDGE,
-  IMAGE_JPEG_QUALITY,
-} from '../src/config';
+import { pickPhotos } from '../src/pick';
 import { getApiSettings, hasApiKey } from '../src/ai/settings';
+import { QuestionFields, parseMarks } from '../src/components/QuestionFields';
+import { ZoomableImage } from '../src/components/ZoomableImage';
 import {
   importPaper,
   PaperSource,
   PaperImportProgress,
   PageExtraction,
+  extractPage,
 } from '../src/ai/importPaper';
 import {
   detectNumberingGaps,
   buildQuestionsFromPages,
   NumberingGap,
 } from '../src/logic/paper';
-import { deriveQuestionType, checkNeedsReview } from '../src/ai/validators';
+import { deriveQuestionType, checkNeedsReview, RawExtractedQuestion } from '../src/ai/validators';
 import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
@@ -67,12 +64,38 @@ type EditablePage = {
   error?: string;
 };
 
+/** AI output for one page -> editable review rows. Type is derived by code, never by the AI. */
+function toEditable(questions: RawExtractedQuestion[]): EditableQuestion[] {
+  return questions.map((q) => ({
+    id: newId(),
+    number: q.number,
+    group: q.group || '',
+    text: q.text,
+    marks: q.marks !== null ? String(q.marks) : '',
+    type: deriveQuestionType(q.marks, q.has_options),
+    needsReview: checkNeedsReview(q.text, q.marks),
+    editedByUser: false,
+    isOrAlternative: q.or_alternative,
+  }));
+}
+
 export default function PaperImportScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { subjectId } = useLocalSearchParams<{ subjectId?: string }>();
 
+  const navigation = useNavigation();
   const pdfWorkerRef = useRef<PdfWorkerHandle>(null);
+  // The hidden PDF reader is only mounted once a PDF is picked (photos and pasted text never need it)
+  const [workerOn, setWorkerOn] = useState(false);
+  const ensureWorker = async () => {
+    setWorkerOn(true);
+    for (let i = 0; i < 100 && !pdfWorkerRef.current; i++) await new Promise((r) => setTimeout(r, 50));
+    return pdfWorkerRef.current ?? undefined;
+  };
+  const cancelRef = useRef(false); // set when the user leaves, so the page loop stops spending quota
+  const savedRef = useRef(false); // set once the paper is saved, so leaving needs no confirm
+  const [saving, setSaving] = useState(false);
 
   // Subject state
   const [subject, setSubject] = useState<Subject | null>(null);
@@ -115,6 +138,21 @@ export default function PaperImportScreen() {
   const [pages, setPages] = useState<EditablePage[]>([]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+
+  useEffect(() => () => { cancelRef.current = true; }, []);
+
+  // Reviewed edits live only in memory: confirm before the user leaves the review step.
+  useEffect(() => {
+    if (step !== 'review') return;
+    return navigation.addListener('beforeRemove', (e) => {
+      if (savedRef.current) return;
+      e.preventDefault();
+      Alert.alert('Discard this paper?', 'The questions you reviewed will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+      ]);
+    });
+  }, [navigation, step]);
 
   useEffect(() => {
     if (subjectId) {
@@ -165,9 +203,10 @@ export default function PaperImportScreen() {
         provider: apiSettings.provider,
         apiKey: apiSettings.apiKey,
         modelId: apiSettings.modelId,
-        pdfWorker: pdfWorkerRef.current || undefined,
+        pdfWorker: src.type === 'pdf' ? await ensureWorker() : undefined,
         resumeFromPage: fromPage,
         previousPages: prevPages,
+        shouldCancel: () => cancelRef.current,
         onProgress: (p) => {
           setProgress(p);
           showProgress('Reading paper', p.message);
@@ -175,6 +214,7 @@ export default function PaperImportScreen() {
       });
 
       if (!result.ok) {
+        if (cancelRef.current) return;
         finish("Couldn't finish reading", (result.friendlyError || result.error) + ' Open PYQed to resume.');
         setErrorMessage(result.friendlyError || result.error);
         setPartialPages(result.partialPages);
@@ -187,17 +227,7 @@ export default function PaperImportScreen() {
         pageNumber: p.pageNumber,
         imageBase64: p.imageBase64,
         error: p.error,
-        questions: p.questions.map((q) => ({
-          id: newId(),
-          number: q.number,
-          group: q.group || '',
-          text: q.text,
-          marks: q.marks !== null ? String(q.marks) : '',
-          type: deriveQuestionType(q.marks, q.has_options),
-          needsReview: checkNeedsReview(q.text, q.marks),
-          editedByUser: false,
-          isOrAlternative: q.or_alternative,
-        })),
+        questions: toEditable(p.questions),
       }));
 
       setPages(editablePages);
@@ -212,8 +242,10 @@ export default function PaperImportScreen() {
 
       setStep('review');
       finish('Paper ready to review', sourceName);
+      if (result.notice) Alert.alert('Long PDF', result.notice);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      finish("Couldn't finish reading", err?.message || 'Something went wrong.');
       setErrorMessage(err?.message || 'Failed to read paper.');
     }
   };
@@ -235,91 +267,32 @@ export default function PaperImportScreen() {
         );
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not pick PDF file.');
+      Alert.alert('Could not open PDF', err?.message || 'Something went wrong.');
     }
   };
 
   const handlePickPhotos = async () => {
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert(
-          'Permission Required',
-          'Camera roll access is needed to select exam paper photos.',
-        );
+      const picked = await pickPhotos(
+        (n) => {
+          setStep('processing');
+          setProgress({ stage: 'reading', current: 0, total: n, message: 'Preparing photos...' });
+        },
+        (i, n) =>
+          setProgress({ stage: 'reading', current: i, total: n, message: `Preparing photo ${i} of ${n}...` }),
+      );
+      if (!picked) return;
+      if (picked.base64s.length === 0) {
+        Alert.alert('Could not read photos', 'None of the selected photos could be processed.');
+        setStep('picker');
         return;
       }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        quality: 1,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setStep('processing');
-        setProgress({
-          stage: 'reading',
-          current: 0,
-          total: result.assets.length,
-          message: 'Preparing photos...',
-        });
-
-        const imageBase64s: string[] = [];
-        const sourceNames: string[] = [];
-
-        for (let i = 0; i < result.assets.length; i++) {
-          const asset = result.assets[i];
-          sourceNames.push(asset.fileName || `Photo_${i + 1}`);
-
-          setProgress({
-            stage: 'reading',
-            current: i + 1,
-            total: result.assets.length,
-            message: `Optimizing photo ${i + 1} of ${result.assets.length}...`,
-          });
-
-          const { width, height, uri } = asset;
-          const isLandscape = width > height;
-          const longEdge = Math.max(width, height);
-
-          const actions: ImageManipulator.Action[] = [];
-          if (longEdge > IMAGE_LONG_EDGE) {
-            if (isLandscape) {
-              actions.push({ resize: { width: IMAGE_LONG_EDGE } });
-            } else {
-              actions.push({ resize: { height: IMAGE_LONG_EDGE } });
-            }
-          }
-
-          const manipulated = await ImageManipulator.manipulateAsync(
-            uri,
-            actions,
-            {
-              compress: IMAGE_JPEG_QUALITY,
-              format: ImageManipulator.SaveFormat.JPEG,
-              base64: true,
-            },
-          );
-
-          if (manipulated.base64) {
-            imageBase64s.push(manipulated.base64);
-          }
-        }
-
-        if (imageBase64s.length === 0) {
-          Alert.alert('Error', 'Could not process selected photos.');
-          setStep('picker');
-          return;
-        }
-
-        startImportWithSource(
-          { type: 'photos', imageBase64s, sourceNames },
-          sourceNames[0] || 'Exam Photos',
-        );
-      }
+      startImportWithSource(
+        { type: 'photos', imageBase64s: picked.base64s, sourceNames: picked.names },
+        picked.names[0] || 'Exam photos',
+      );
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not pick photos.');
+      Alert.alert('Could not open photos', err?.message || 'Something went wrong.');
       setStep('picker');
     }
   };
@@ -352,20 +325,45 @@ export default function PaperImportScreen() {
           questions: p.questions.map((q) => {
             if (q.id !== qId) return q;
             const updated = updater(q);
-            const parsedMarks =
-              updated.marks.trim() === '' ? null : Number(updated.marks);
             return {
               ...updated,
-              needsReview: checkNeedsReview(
-                updated.text,
-                isNaN(parsedMarks as any) ? null : parsedMarks,
-              ),
+              needsReview: checkNeedsReview(updated.text, parseMarks(updated.marks)),
               editedByUser: true,
             };
           }),
         };
       }),
     );
+  };
+
+  // Read one failed page again (the image is kept in memory during review)
+  const [retrying, setRetrying] = useState(false);
+  const retryPage = async () => {
+    const page = pages[activePageIndex];
+    if (!page?.imageBase64 || retrying) return;
+    setRetrying(true);
+    try {
+      const ai = await getApiSettings();
+      const prev = pages[activePageIndex - 1]?.questions ?? [];
+      const res = await extractPage(
+        { pageNumber: page.pageNumber, imageBase64: page.imageBase64 },
+        pages.length,
+        prev.length ? prev[prev.length - 1].number : undefined,
+        ai,
+      );
+      if (!res.ok) {
+        Alert.alert("Still couldn't read this page", res.friendlyError);
+        return;
+      }
+      setPages((all) =>
+        all.map((p, i) =>
+          i === activePageIndex ? { ...p, error: undefined, questions: toEditable(res.data.questions) } : p,
+        ),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } finally {
+      setRetrying(false);
+    }
   };
 
   const deleteQuestion = (qId: string) => {
@@ -408,22 +406,38 @@ export default function PaperImportScreen() {
 
   // Final Save to Subject
   const handleSavePaper = async () => {
-    if (!subject) {
-      Alert.alert('Error', 'Subject not found.');
-      return;
-    }
+    if (!subject || saving) return;
 
     const totalQuestions = pages.reduce((acc, p) => acc + p.questions.length, 0);
     if (totalQuestions === 0) {
-      Alert.alert(
-        'No Questions',
-        'Please add or extract at least one question before saving.',
-      );
+      Alert.alert('No questions', 'Add at least one question before saving.');
       return;
     }
 
     const parsedYear = paperYear.trim() ? parseInt(paperYear.trim(), 10) : null;
     const finalYear = isNaN(parsedYear as any) ? null : parsedYear;
+
+    // The same paper twice would double every "Asked n×" count, so ask first
+    const duplicate =
+      finalYear !== null &&
+      subject.papers.some(
+        (p) => p.year === finalYear && (p.session ?? '').toLowerCase() === paperSession.trim().toLowerCase(),
+      );
+    if (duplicate) {
+      const proceed = await new Promise<boolean>((resolve) =>
+        Alert.alert(
+          'Already added?',
+          `This subject already has a ${finalYear}${paperSession.trim() ? ' ' + paperSession.trim() : ''} paper. Adding it again will count its questions twice.`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Add anyway', onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        ),
+      );
+      if (!proceed) return;
+    }
+    setSaving(true);
     const paperId = newId();
 
     // 1. Save page images to disk
@@ -456,7 +470,7 @@ export default function PaperImportScreen() {
           number: q.number,
           group: q.group || null,
           text: q.text,
-          marks: q.marks.trim() === '' ? null : Number(q.marks),
+          marks: parseMarks(q.marks),
           type: q.type,
           needsReview: q.needsReview,
           editedByUser: q.editedByUser,
@@ -477,7 +491,10 @@ export default function PaperImportScreen() {
     await saveSubject(updatedSubject);
 
     // 5. Trigger topic labelling if syllabus units exist
-    if (updatedSubject.units.length > 0) {
+    let labelNote = '';
+    if (updatedSubject.units.length === 0) {
+      labelNote = ' Add a syllabus to sort them into topics.';
+    } else {
       const apiSettings = await getApiSettings();
       if (apiSettings.apiKey && apiSettings.apiKey.trim().length > 0) {
         setStep('labelling');
@@ -535,17 +552,27 @@ export default function PaperImportScreen() {
           console.warn('Topic labelling / repeat grouping failed:', err);
           // Non-fatal: paper is already saved with unassigned questions
         }
+        const newIds = new Set(domainQuestions.map((q) => q.id));
+        const missed = updatedSubject.questions.filter(
+          (q) => newIds.has(q.id) && q.topicId === null,
+        ).length;
+        if (missed > 0) {
+          labelNote = ` ${missed} couldn't be matched to a topic; find them under Unassigned.`;
+        }
+      } else {
+        labelNote = ' Add an API key in Settings to sort them into topics.';
       }
     }
 
     finish('Paper saved', `${domainQuestions.length} questions added to ${subject.name}.`);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    savedRef.current = true;
     Alert.alert(
-      'Paper Saved',
-      `Saved ${domainQuestions.length} questions from ${newPaper.title}!`,
+      'Paper saved',
+      `Saved ${domainQuestions.length} questions from ${newPaper.title}.${labelNote}`,
       [
         {
-          text: 'View Subject',
+          text: 'View subject',
           onPress: () => router.replace(`/subject/${subject.id}`),
         },
       ],
@@ -567,17 +594,17 @@ export default function PaperImportScreen() {
         options={{
           title:
             step === 'review'
-              ? 'Paper Review'
+              ? 'Review paper'
               : step === 'processing'
-              ? 'Reading Paper'
+              ? 'Reading paper'
               : step === 'labelling'
-              ? 'Labelling Topics'
-              : 'Add Past Papers',
+              ? 'Sorting into topics'
+              : 'Add past papers',
         }}
       />
 
       {/* Hidden PDF Worker */}
-      <PdfWorker ref={pdfWorkerRef} />
+      {workerOn && <PdfWorker ref={pdfWorkerRef} />}
 
       {/* API Key Modal Sheet */}
       <ApiKeySheet
@@ -600,9 +627,7 @@ export default function PaperImportScreen() {
               {subject ? `For ${subject.name}` : 'Select a PYQ paper'}
             </Text>
             <Text style={[styles.bodyText, { color: colors.textSecondary }]}>
-              Add scanned or digital university question papers (PDF or photos).
-              AI will extract every question with numbers, marks, and
-              sections.
+              Add a question paper as a PDF or photos. Scanned papers work too.
             </Text>
           </View>
 
@@ -630,7 +655,7 @@ export default function PaperImportScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Question Paper PDF
+                  Question paper PDF
                 </Text>
                 <Text
                   style={[styles.cardDesc, { color: colors.textSecondary }]}
@@ -664,7 +689,7 @@ export default function PaperImportScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Paper Photos / Scans
+                  Photos of the paper
                 </Text>
                 <Text
                   style={[styles.cardDesc, { color: colors.textSecondary }]}
@@ -688,8 +713,7 @@ export default function PaperImportScreen() {
           >
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
             <Text style={[styles.infoCardText, { color: colors.textSecondary }]}>
-              Every question will be presented beside the original page image for
-              your review before saving.
+              You'll review every question against the original page before saving.
             </Text>
           </View>
         </ScrollView>
@@ -707,7 +731,7 @@ export default function PaperImportScreen() {
             >
               <Ionicons name="alert-circle" size={44} color={colors.red} />
               <Text style={[styles.h2, { color: colors.text, textAlign: 'center' }]}>
-                Import Interrupted
+                Import interrupted
               </Text>
               <Text
                 style={[
@@ -825,11 +849,12 @@ export default function PaperImportScreen() {
             <TouchableOpacity
               style={[styles.saveBtn, { backgroundColor: colors.accent }]}
               onPress={handleSavePaper}
-              accessibilityLabel="Save Paper"
+              disabled={saving}
+              accessibilityLabel="Save paper"
             >
               <Ionicons name="checkmark" size={18} color={colors.accentText} />
               <Text style={[styles.saveBtnText, { color: colors.accentText }]}>
-                Save Paper
+                Save paper
               </Text>
             </TouchableOpacity>
           </View>
@@ -915,13 +940,7 @@ export default function PaperImportScreen() {
                   { backgroundColor: colors.card, borderColor: colors.border },
                 ]}
               >
-                <Image
-                  source={{
-                    uri: `data:image/jpeg;base64,${currentPage.imageBase64}`,
-                  }}
-                  style={styles.pageImage}
-                  resizeMode="contain"
-                />
+                <ZoomableImage uri={`data:image/jpeg;base64,${currentPage.imageBase64}`} />
                 <View
                   style={[
                     styles.imageFooter,
@@ -956,11 +975,21 @@ export default function PaperImportScreen() {
                 <Ionicons name="warning-outline" size={20} color={colors.red} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.gapTitle, { color: colors.red }]}>
-                    Couldn't read this page automatically
+                    Couldn't read this page
                   </Text>
                   <Text style={[styles.gapSubtitle, { color: colors.red }]}>
-                    You can add questions manually using the button below.
+                    Try again, or add its questions by hand below.
                   </Text>
+                  {currentPage.imageBase64 ? (
+                    <TouchableOpacity
+                      onPress={retryPage}
+                      disabled={retrying}
+                      style={[styles.retryBtn, { borderColor: colors.red, opacity: retrying ? 0.6 : 1 }]}
+                      accessibilityLabel="Retry this page"
+                    >
+                      <Text style={{ color: colors.red, fontWeight: '700' }}>{retrying ? 'Reading…' : 'Retry this page'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
             )}
@@ -989,7 +1018,7 @@ export default function PaperImportScreen() {
             {/* Questions Header */}
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Extracted Questions ({currentPage?.questions.length ?? 0})
+                Questions ({currentPage?.questions.length ?? 0})
               </Text>
               <TouchableOpacity
                 style={[
@@ -1001,7 +1030,7 @@ export default function PaperImportScreen() {
               >
                 <Ionicons name="add" size={16} color={colors.accent} />
                 <Text style={[styles.addQBtnText, { color: colors.accent }]}>
-                  Add Question
+                  Add question
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1189,156 +1218,10 @@ export default function PaperImportScreen() {
                       </Text>
                     ) : (
                       <View style={styles.editContainer}>
-                        <View style={styles.editRow}>
-                          <View style={{ width: 80 }}>
-                            <Text
-                              style={[
-                                styles.editLabel,
-                                { color: colors.textSecondary },
-                              ]}
-                            >
-                              Number
-                            </Text>
-                            <TextInput
-                              style={[inputStyle, styles.editInput]}
-                              value={q.number}
-                              onChangeText={(t) =>
-                                updateQuestion(q.id, (old) => ({
-                                  ...old,
-                                  number: t,
-                                }))
-                              }
-                              placeholder="e.g. 1a"
-                              placeholderTextColor={colors.textSecondary}
-                            />
-                          </View>
-
-                          <View style={{ width: 80 }}>
-                            <Text
-                              style={[
-                                styles.editLabel,
-                                { color: colors.textSecondary },
-                              ]}
-                            >
-                              Marks
-                            </Text>
-                            <TextInput
-                              style={[inputStyle, styles.editInput]}
-                              value={q.marks}
-                              onChangeText={(t) =>
-                                updateQuestion(q.id, (old) => ({
-                                  ...old,
-                                  marks: t,
-                                }))
-                              }
-                              placeholder="?"
-                              placeholderTextColor={colors.textSecondary}
-                              keyboardType="numeric"
-                            />
-                          </View>
-
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={[
-                                styles.editLabel,
-                                { color: colors.textSecondary },
-                              ]}
-                            >
-                              Section / Group
-                            </Text>
-                            <TextInput
-                              style={[inputStyle, styles.editInput]}
-                              value={q.group}
-                              onChangeText={(t) =>
-                                updateQuestion(q.id, (old) => ({
-                                  ...old,
-                                  group: t,
-                                }))
-                              }
-                              placeholder="Group A (optional)"
-                              placeholderTextColor={colors.textSecondary}
-                            />
-                          </View>
-                        </View>
-
-                        {/* Question Type Selector */}
-                        <View style={{ gap: 4 }}>
-                          <Text
-                            style={[
-                              styles.editLabel,
-                              { color: colors.textSecondary },
-                            ]}
-                          >
-                            Question Type
-                          </Text>
-                          <View style={styles.typeSelectorRow}>
-                            {(['short', 'long', 'mcq', 'other'] as const).map(
-                              (t) => (
-                                <TouchableOpacity
-                                  key={t}
-                                  style={[
-                                    styles.typeSelectBtn,
-                                    {
-                                      backgroundColor:
-                                        q.type === t
-                                          ? colors.accent
-                                          : colors.chip,
-                                    },
-                                  ]}
-                                  onPress={() =>
-                                    updateQuestion(q.id, (old) => ({
-                                      ...old,
-                                      type: t,
-                                    }))
-                                  }
-                                >
-                                  <Text
-                                    style={[
-                                      styles.typeSelectText,
-                                      {
-                                        color:
-                                          q.type === t
-                                            ? colors.accentText
-                                            : colors.textSecondary,
-                                      },
-                                    ]}
-                                  >
-                                    {t}
-                                  </Text>
-                                </TouchableOpacity>
-                              ),
-                            )}
-                          </View>
-                        </View>
-
-                        {/* Text Editor */}
-                        <View style={{ gap: 4 }}>
-                          <Text
-                            style={[
-                              styles.editLabel,
-                              { color: colors.textSecondary },
-                            ]}
-                          >
-                            Question Text
-                          </Text>
-                          <TextInput
-                            style={[
-                              inputStyle,
-                              styles.textEditor,
-                              { minHeight: 70 },
-                            ]}
-                            value={q.text}
-                            onChangeText={(t) =>
-                              updateQuestion(q.id, (old) => ({
-                                ...old,
-                                text: t,
-                              }))
-                            }
-                            placeholder="Question text..."
-                            placeholderTextColor={colors.textSecondary}
-                            multiline
-                          />
-                        </View>
+                        <QuestionFields
+                          value={q}
+                          onChange={(patch) => updateQuestion(q.id, (old) => ({ ...old, ...patch }))}
+                        />
 
                         <TouchableOpacity
                           style={[
@@ -1498,8 +1381,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   metaInput: {
-    height: 38,
-    paddingVertical: 4,
+    height: 44,
     paddingHorizontal: Spacing.sm,
     fontSize: FontSize.caption + 1,
     fontWeight: '600',
@@ -1508,7 +1390,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    height: 42,
+    height: 44,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.button,
     alignSelf: 'flex-end',
@@ -1520,7 +1402,7 @@ const styles = StyleSheet.create({
   },
   pageTabsContainer: {
     borderBottomWidth: 1,
-    maxHeight: 52,
+    maxHeight: 60,
     paddingVertical: Spacing.xs,
   },
   pageTab: {
@@ -1528,7 +1410,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
+    minHeight: 44,
     borderRadius: BorderRadius.button,
     borderWidth: 1,
   },
@@ -1549,11 +1431,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.card,
     borderWidth: 1,
     overflow: 'hidden',
-  },
-  pageImage: {
-    width: '100%',
-    height: 280,
-    backgroundColor: '#00000008',
   },
   imageFooter: {
     flexDirection: 'row',
@@ -1581,6 +1458,15 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.card,
     borderWidth: 1,
+  },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1,
+    borderRadius: BorderRadius.button,
+    marginTop: Spacing.xs,
   },
   gapTitle: {
     fontSize: FontSize.caption + 1,
@@ -1674,8 +1560,8 @@ const styles = StyleSheet.create({
     maxWidth: 90,
   },
   iconActionBtn: {
-    width: 32,
-    height: 32,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1695,41 +1581,6 @@ const styles = StyleSheet.create({
   editContainer: {
     gap: Spacing.sm,
     paddingTop: Spacing.xs,
-  },
-  editRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  editLabel: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  editInput: {
-    height: 38,
-    paddingHorizontal: Spacing.sm,
-    fontSize: FontSize.caption,
-  },
-  typeSelectorRow: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  typeSelectBtn: {
-    flex: 1,
-    paddingVertical: 6,
-    alignItems: 'center',
-    borderRadius: BorderRadius.chip,
-  },
-  typeSelectText: {
-    fontSize: FontSize.tiny + 1,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  textEditor: {
-    textAlignVertical: 'top',
-    padding: Spacing.sm,
-    fontSize: FontSize.caption + 1,
-    lineHeight: 20,
   },
   doneEditBtn: {
     height: 36,

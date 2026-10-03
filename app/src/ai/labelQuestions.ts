@@ -1,5 +1,5 @@
 /**
- * Question topic labelling orchestrator (AGENTS.md §8.3).
+ * Question topic labelling orchestrator.
  * Runs after a paper is saved. Sends questions in chunks of ≤ 25 to the AI.
  * Labels each question with a topic ID; unknown topic IDs -> null (Unassigned).
  * unitId is derived from the topic by code.

@@ -1,4 +1,4 @@
-// Subject storage on the phone (AGENTS.md §5), using the new expo-file-system File/Directory API.
+// Subject storage on the phone, using the new expo-file-system File/Directory API.
 //   <documentDirectory>/pyqed/subjects.json        index (SubjectMeta[])
 //   <documentDirectory>/pyqed/subjects/{id}.json   full subject
 //   <documentDirectory>/pyqed/subjects/{id}/       page images (later milestones)
@@ -70,6 +70,15 @@ export async function deleteSubject(id: string): Promise<void> {
   if (idx.exists) idx.write(JSON.stringify(list));
 }
 
+/** Remove a deleted paper's page images from disk. */
+export function deletePaperImages(subjectId: string, paperId: string): void {
+  const dir = new Directory(subjectsDir(), subjectId, 'pages');
+  if (!dir.exists) return;
+  for (const f of dir.list()) {
+    if (f instanceof File && f.name.startsWith(`${paperId}_`)) f.delete();
+  }
+}
+
 export async function savePageImage(
   subjectId: string,
   paperId: string,
@@ -130,4 +139,9 @@ export function pageImageUri(
   const dir = new Directory(subjectsDir(), subjectId, 'pages');
   const f = new File(dir, `${paperId}_${pageNum}.jpg`);
   return f.uri;
+}
+
+/** True if the page image was saved (it isn't for subjects shared without images). */
+export function hasPageImage(subjectId: string, paperId: string, pageNum: number): boolean {
+  return new File(new Directory(subjectsDir(), subjectId, 'pages'), `${paperId}_${pageNum}.jpg`).exists;
 }

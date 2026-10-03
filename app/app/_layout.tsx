@@ -22,10 +22,11 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="subject/[id]" options={{ title: 'Subject' }} />
         <Stack.Screen name="subject/edit" options={{ title: 'Subject' }} />
-        <Stack.Screen name="subject/topic" options={{ title: 'Topic Questions' }} />
+        <Stack.Screen name="subject/topic" options={{ title: 'Topic' }} />
+        <Stack.Screen name="subject/paper" options={{ title: 'Paper' }} />
         <Stack.Screen name="subject/practice" options={{ title: 'Practice' }} />
-        <Stack.Screen name="syllabus-import" options={{ title: 'Import Syllabus' }} />
-        <Stack.Screen name="paper-import" options={{ title: 'Add Papers' }} />
+        <Stack.Screen name="syllabus-import" options={{ title: 'Import syllabus' }} />
+        <Stack.Screen name="paper-import" options={{ title: 'Add papers' }} />
       </Stack>
     </>
   );

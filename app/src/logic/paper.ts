@@ -1,5 +1,5 @@
 /**
- * Pure paper import logic (AGENTS.md §8.2, §9, §13).
+ * Pure paper import logic.
  * No React Native dependencies — runs in pure Node/tests.
  */
 

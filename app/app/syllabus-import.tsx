@@ -8,17 +8,12 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useNavigation, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
-import {
-  IMAGE_LONG_EDGE,
-  IMAGE_JPEG_QUALITY,
-} from '../src/config';
+import { pickPhotos } from '../src/pick';
 import { getApiSettings, hasApiKey } from '../src/ai/settings';
 import {
   importSyllabus,
@@ -31,7 +26,7 @@ import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
 import { ImportProgress } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
-import { move } from '../src/logic/list';
+import { UnitsEditor } from '../src/components/UnitsEditor';
 
 type EditableTopic = {
   id: string;
@@ -56,7 +51,16 @@ type EditableSubject = {
 export default function SyllabusImportScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const navigation = useNavigation();
   const pdfWorkerRef = useRef<PdfWorkerHandle>(null);
+  // The hidden PDF reader is only mounted once a PDF is picked (photos and pasted text never need it)
+  const [workerOn, setWorkerOn] = useState(false);
+  const ensureWorker = async () => {
+    setWorkerOn(true);
+    for (let i = 0; i < 100 && !pdfWorkerRef.current; i++) await new Promise((r) => setTimeout(r, 50));
+    return pdfWorkerRef.current ?? undefined;
+  };
+  const savedRef = useRef(false); // set once subjects are created, so leaving needs no confirm
 
   // Flow states
   const [step, setStep] = useState<'picker' | 'processing' | 'review'>('picker');
@@ -91,6 +95,19 @@ export default function SyllabusImportScreen() {
 
   // Review state
   const [subjects, setSubjects] = useState<EditableSubject[]>([]);
+
+  // Review edits live only in memory: confirm before the user leaves.
+  useEffect(() => {
+    if (step !== 'review') return;
+    return navigation.addListener('beforeRemove', (e) => {
+      if (savedRef.current) return;
+      e.preventDefault();
+      Alert.alert('Discard this syllabus?', 'Your review edits will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+      ]);
+    });
+  }, [navigation, step]);
 
   // 1. Check API key before running import
   const startImportWithSource = async (source: SyllabusSource) => {
@@ -127,7 +144,7 @@ export default function SyllabusImportScreen() {
         provider: apiSettings.provider,
         apiKey: apiSettings.apiKey,
         modelId: apiSettings.modelId,
-        pdfWorker: pdfWorkerRef.current || undefined,
+        pdfWorker: source.type === 'pdf' ? await ensureWorker() : undefined,
         onProgress: (p) => {
           setProgress(p);
           showProgress('Reading syllabus', p.message);
@@ -163,6 +180,7 @@ export default function SyllabusImportScreen() {
       finish('Syllabus ready to review', 'Open PYQed to check the subjects.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      finish("Couldn't finish reading", err?.message || 'Something went wrong.');
       setErrorMessage(err?.message || 'Failed to import syllabus.');
     }
   };
@@ -180,93 +198,36 @@ export default function SyllabusImportScreen() {
         startImportWithSource({ type: 'pdf', fileUri });
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not pick PDF file.');
+      Alert.alert('Could not open PDF', err?.message || 'Something went wrong.');
     }
   };
 
   const handlePickPhotos = async () => {
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert(
-          'Permission Required',
-          'Camera roll access is needed to select syllabus photos.',
-        );
+      const picked = await pickPhotos(
+        (n) => {
+          setStep('processing');
+          setProgress({ stage: 'reading', current: 0, total: n, message: 'Preparing photos...' });
+        },
+        (i, n) =>
+          setProgress({ stage: 'reading', current: i, total: n, message: `Preparing photo ${i} of ${n}...` }),
+      );
+      if (!picked) return;
+      if (picked.base64s.length === 0) {
+        Alert.alert('Could not read photos', 'None of the selected photos could be processed.');
+        setStep('picker');
         return;
       }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        quality: 1,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Resize all selected photos
-        setStep('processing');
-        setProgress({
-          stage: 'reading',
-          current: 0,
-          total: result.assets.length,
-          message: 'Preparing photos...',
-        });
-
-        const imageBase64s: string[] = [];
-
-        for (let i = 0; i < result.assets.length; i++) {
-          const asset = result.assets[i];
-          setProgress({
-            stage: 'reading',
-            current: i + 1,
-            total: result.assets.length,
-            message: `Optimizing photo ${i + 1} of ${result.assets.length}...`,
-          });
-
-          const { width, height, uri } = asset;
-          const isLandscape = width > height;
-          const longEdge = Math.max(width, height);
-
-          const actions: ImageManipulator.Action[] = [];
-          if (longEdge > IMAGE_LONG_EDGE) {
-            if (isLandscape) {
-              actions.push({ resize: { width: IMAGE_LONG_EDGE } });
-            } else {
-              actions.push({ resize: { height: IMAGE_LONG_EDGE } });
-            }
-          }
-
-          const manipulated = await ImageManipulator.manipulateAsync(
-            uri,
-            actions,
-            {
-              compress: IMAGE_JPEG_QUALITY,
-              format: ImageManipulator.SaveFormat.JPEG,
-              base64: true,
-            },
-          );
-
-          if (manipulated.base64) {
-            imageBase64s.push(manipulated.base64);
-          }
-        }
-
-        if (imageBase64s.length === 0) {
-          Alert.alert('Error', 'Could not process selected photos.');
-          setStep('picker');
-          return;
-        }
-
-        startImportWithSource({ type: 'photos', imageBase64s });
-      }
+      startImportWithSource({ type: 'photos', imageBase64s: picked.base64s });
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Could not pick photos.');
+      Alert.alert('Could not open photos', err?.message || 'Something went wrong.');
       setStep('picker');
     }
   };
 
   const handleDonePasting = () => {
     if (!pastedText.trim()) {
-      Alert.alert('Text Required', 'Please paste some syllabus text first.');
+      Alert.alert('Nothing to read', 'Paste some syllabus text first.');
       return;
     }
     startImportWithSource({ type: 'text', text: pastedText.trim() });
@@ -304,15 +265,12 @@ export default function SyllabusImportScreen() {
   const selectedSubjects = subjects.filter((s) => s.selected);
   const handleMergeSelected = () => {
     if (selectedSubjects.length < 2) {
-      Alert.alert(
-        'Select Subjects',
-        'Tick at least 2 subjects to merge them together.',
-      );
+      Alert.alert('Select subjects', 'Tick at least 2 subjects to merge them.');
       return;
     }
 
     Alert.alert(
-      'Merge Subjects?',
+      'Merge subjects?',
       `Merge ${selectedSubjects.length} selected subjects into one? Their units and topics will be combined.`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -372,7 +330,7 @@ export default function SyllabusImportScreen() {
   const handleCreateSubjects = async () => {
     const toSave = subjects.filter((s) => s.selected && s.name.trim().length > 0);
     if (toSave.length === 0) {
-      Alert.alert('No Subjects Selected', 'Please tick at least one subject to create.');
+      Alert.alert('No subjects selected', 'Tick at least one subject to create.');
       return;
     }
 
@@ -399,12 +357,13 @@ export default function SyllabusImportScreen() {
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    savedRef.current = true;
     Alert.alert(
-      'Subjects Created',
-      `Successfully created ${toSave.length} subject${toSave.length > 1 ? 's' : ''}!`,
+      toSave.length > 1 ? 'Subjects created' : 'Subject created',
+      `Created ${toSave.length} subject${toSave.length > 1 ? 's' : ''}.`,
       [
         {
-          text: 'View Subjects',
+          text: 'View subjects',
           onPress: () => router.replace('/(tabs)'),
         },
       ],
@@ -426,15 +385,15 @@ export default function SyllabusImportScreen() {
         options={{
           title:
             step === 'review'
-              ? 'Syllabus Review'
+              ? 'Review syllabus'
               : step === 'processing'
-              ? 'Importing Syllabus'
-              : 'Import Syllabus',
+              ? 'Reading syllabus'
+              : 'Import syllabus',
         }}
       />
 
       {/* Hidden PDF Worker */}
-      <PdfWorker ref={pdfWorkerRef} />
+      {workerOn && <PdfWorker ref={pdfWorkerRef} />}
 
       {/* API Key Modal Sheet */}
       <ApiKeySheet
@@ -454,8 +413,7 @@ export default function SyllabusImportScreen() {
         >
           <View style={styles.headerBlock}>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              AI will read the document, detect courses, units, and topics,
-              and build your question bank structure automatically.
+              Pick your syllabus and PYQed will find the subjects, units and topics. You can edit everything before saving.
             </Text>
           </View>
 
@@ -627,7 +585,7 @@ export default function SyllabusImportScreen() {
             >
               <Ionicons name="alert-circle" size={44} color={colors.red} />
               <Text style={[styles.h2, { color: colors.text, textAlign: 'center' }]}>
-                Import Failed
+                Import failed
               </Text>
               <Text
                 style={[
@@ -699,7 +657,7 @@ export default function SyllabusImportScreen() {
           >
             <View style={styles.reviewHeader}>
               <Text style={[styles.h2, { color: colors.text }]}>
-                Detected Subjects ({subjects.length})
+                Subjects found ({subjects.length})
               </Text>
               <Text
                 style={[styles.reviewSubtitle, { color: colors.textSecondary }]}
@@ -817,274 +775,10 @@ export default function SyllabusImportScreen() {
                     UNITS & TOPICS ({sub.units.length} units)
                   </Text>
 
-                  {sub.units.map((unit, uIdx) => (
-                    <View
-                      key={unit.id}
-                      style={[
-                        styles.unitCard,
-                        {
-                          backgroundColor: colors.surface,
-                          borderColor: colors.border,
-                        },
-                      ]}
-                    >
-                      {/* Unit Row */}
-                      <View style={styles.row}>
-                        <TextInput
-                          style={[
-                            inputStyle,
-                            { flex: 1, fontWeight: '600' },
-                          ]}
-                          value={unit.name}
-                          onChangeText={(t) =>
-                            patchSubject(sub.id, (s) => ({
-                              ...s,
-                              units: s.units.map((u, k) =>
-                                k === uIdx ? { ...u, name: t } : u,
-                              ),
-                            }))
-                          }
-                          placeholder="Unit name"
-                          placeholderTextColor={colors.textSecondary}
-                        />
-                        <TouchableOpacity
-                          disabled={uIdx === 0}
-                          onPress={() =>
-                            patchSubject(sub.id, (s) => ({
-                              ...s,
-                              units: move(s.units, uIdx, -1),
-                            }))
-                          }
-                          style={[
-                            styles.iconBtn44,
-                            uIdx === 0 && { opacity: 0.3 },
-                          ]}
-                        >
-                          <Ionicons
-                            name="arrow-up"
-                            size={18}
-                            color={colors.text}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          disabled={uIdx === sub.units.length - 1}
-                          onPress={() =>
-                            patchSubject(sub.id, (s) => ({
-                              ...s,
-                              units: move(s.units, uIdx, 1),
-                            }))
-                          }
-                          style={[
-                            styles.iconBtn44,
-                            uIdx === sub.units.length - 1 && { opacity: 0.3 },
-                          ]}
-                        >
-                          <Ionicons
-                            name="arrow-down"
-                            size={18}
-                            color={colors.text}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() =>
-                            patchSubject(sub.id, (s) => ({
-                              ...s,
-                              units: s.units.filter((_, k) => k !== uIdx),
-                            }))
-                          }
-                          style={styles.iconBtn44}
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={18}
-                            color={colors.red}
-                          />
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Topics inside unit */}
-                      {unit.topics.map((topic, tIdx) => (
-                        <View
-                          key={topic.id}
-                          style={[styles.row, { marginLeft: Spacing.md }]}
-                        >
-                          <TextInput
-                            style={[
-                              inputStyle,
-                              { flex: 1, fontSize: FontSize.caption + 1 },
-                            ]}
-                            value={topic.name}
-                            onChangeText={(t) =>
-                              patchSubject(sub.id, (s) => ({
-                                ...s,
-                                units: s.units.map((u, k) =>
-                                  k === uIdx
-                                    ? {
-                                        ...u,
-                                        topics: u.topics.map((tt, j) =>
-                                          j === tIdx
-                                            ? { ...tt, name: t }
-                                            : tt,
-                                        ),
-                                      }
-                                    : u,
-                                ),
-                              }))
-                            }
-                            placeholder="Topic name"
-                            placeholderTextColor={colors.textSecondary}
-                          />
-                          <TouchableOpacity
-                            disabled={tIdx === 0}
-                            onPress={() =>
-                              patchSubject(sub.id, (s) => ({
-                                ...s,
-                                units: s.units.map((u, k) =>
-                                  k === uIdx
-                                    ? {
-                                        ...u,
-                                        topics: move(u.topics, tIdx, -1),
-                                      }
-                                    : u,
-                                ),
-                              }))
-                            }
-                            style={[
-                              styles.iconBtn44,
-                              tIdx === 0 && { opacity: 0.3 },
-                            ]}
-                          >
-                            <Ionicons
-                              name="arrow-up"
-                              size={16}
-                              color={colors.text}
-                            />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            disabled={tIdx === unit.topics.length - 1}
-                            onPress={() =>
-                              patchSubject(sub.id, (s) => ({
-                                ...s,
-                                units: s.units.map((u, k) =>
-                                  k === uIdx
-                                    ? {
-                                        ...u,
-                                        topics: move(u.topics, tIdx, 1),
-                                      }
-                                    : u,
-                                ),
-                              }))
-                            }
-                            style={[
-                              styles.iconBtn44,
-                              tIdx === unit.topics.length - 1 && {
-                                opacity: 0.3,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name="arrow-down"
-                              size={16}
-                              color={colors.text}
-                            />
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() =>
-                              patchSubject(sub.id, (s) => ({
-                                ...s,
-                                units: s.units.map((u, k) =>
-                                  k === uIdx
-                                    ? {
-                                        ...u,
-                                        topics: u.topics.filter(
-                                          (_, j) => j !== tIdx,
-                                        ),
-                                      }
-                                    : u,
-                                ),
-                              }))
-                            }
-                            style={styles.iconBtn44}
-                          >
-                            <Ionicons
-                              name="trash-outline"
-                              size={16}
-                              color={colors.red}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-
-                      {/* Add Topic button */}
-                      <TouchableOpacity
-                        style={styles.addTopicLink}
-                        onPress={() =>
-                          patchSubject(sub.id, (s) => ({
-                            ...s,
-                            units: s.units.map((u, k) =>
-                              k === uIdx
-                                ? {
-                                    ...u,
-                                    topics: [
-                                      ...u.topics,
-                                      { id: newId(), name: '' },
-                                    ],
-                                  }
-                                : u,
-                            ),
-                          }))
-                        }
-                        accessibilityLabel="Add topic to unit"
-                      >
-                        <Ionicons
-                          name="add"
-                          size={18}
-                          color={colors.accent}
-                        />
-                        <Text
-                          style={{
-                            color: colors.accent,
-                            fontWeight: '600',
-                            fontSize: FontSize.caption,
-                          }}
-                        >
-                          Add topic
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-
-                  {/* Add Unit button */}
-                  <TouchableOpacity
-                    style={[
-                      styles.addUnitBtn,
-                      {
-                        borderColor: colors.accent,
-                        backgroundColor: colors.card,
-                      },
-                    ]}
-                    onPress={() =>
-                      patchSubject(sub.id, (s) => ({
-                        ...s,
-                        units: [
-                          ...s.units,
-                          { id: newId(), name: '', topics: [] },
-                        ],
-                      }))
-                    }
-                    accessibilityLabel="Add unit to subject"
-                  >
-                    <Ionicons name="add" size={18} color={colors.accent} />
-                    <Text
-                      style={{
-                        color: colors.accent,
-                        fontWeight: '600',
-                        fontSize: FontSize.caption + 1,
-                      }}
-                    >
-                      Add unit
-                    </Text>
-                  </TouchableOpacity>
+                  <UnitsEditor
+                    units={sub.units}
+                    onChange={(units) => patchSubject(sub.id, (x) => ({ ...x, units }))}
+                  />
                 </View>
               </View>
             ))}
@@ -1319,38 +1013,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: Spacing.xs,
   },
-  unitCard: {
-    borderWidth: 1,
-    borderRadius: BorderRadius.card - 4,
-    padding: Spacing.sm,
-    gap: Spacing.xs,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   iconBtn44: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  addTopicLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    minHeight: 40,
-    marginLeft: Spacing.md,
-  },
-  addUnitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    minHeight: 42,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    marginTop: Spacing.xs,
   },
   addSubjectBtn: {
     flexDirection: 'row',

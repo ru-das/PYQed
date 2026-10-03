@@ -8,7 +8,6 @@ import React, {
 } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { PDF_WORKER_HTML } from './pdfWorkerHtml';
 
 export type PageResult =
   | { type: 'text'; text: string; base64?: string }
@@ -25,6 +24,9 @@ export type PdfWorkerProps = {
 };
 
 const CHUNK_SIZE = 512 * 1024; // 512 KB chunks for large base64 strings
+// Android can kill the WebView while the app is in the background; without a timeout the import would wait forever.
+const LOAD_TIMEOUT_MS = 60_000;
+const PAGE_TIMEOUT_MS = 60_000;
 
 export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
   function PdfWorker({ onReady, onError }, ref) {
@@ -127,7 +129,14 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
           await waitForReady();
 
           return new Promise<{ pageCount: number }>((resolve, reject) => {
-            loadPromiseRef.current = { resolve, reject };
+            const timer = setTimeout(() => {
+              loadPromiseRef.current = null;
+              reject(new Error('The PDF reader stopped responding. Try again.'));
+            }, LOAD_TIMEOUT_MS);
+            loadPromiseRef.current = {
+              resolve: (v) => { clearTimeout(timer); resolve(v); },
+              reject: (e) => { clearTimeout(timer); reject(e); },
+            };
 
             const isLarge = base64.length > CHUNK_SIZE;
             if (!isLarge) {
@@ -160,7 +169,14 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
           await waitForReady();
 
           return new Promise<PageResult>((resolve, reject) => {
-            pagePromisesRef.current.set(pageNumber, { resolve, reject });
+            const timer = setTimeout(() => {
+              pagePromisesRef.current.delete(pageNumber);
+              reject(new Error(`Page ${pageNumber} took too long to render.`));
+            }, PAGE_TIMEOUT_MS);
+            pagePromisesRef.current.set(pageNumber, {
+              resolve: (v) => { clearTimeout(timer); resolve(v); },
+              reject: (e) => { clearTimeout(timer); reject(e); },
+            });
             postToWebView({
               type: 'getPage',
               pageNumber,
@@ -175,7 +191,8 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
       <View style={styles.hiddenContainer} pointerEvents="none">
         <WebView
           ref={webViewRef}
-          source={{ html: PDF_WORKER_HTML }}
+          // required here, not at the top, so the ~1 MB pdf.js string loads only when a PDF is opened
+          source={{ html: require('./pdfWorkerHtml').PDF_WORKER_HTML }}
           onMessage={handleMessage}
           originWhitelist={['*']}
           javaScriptEnabled
