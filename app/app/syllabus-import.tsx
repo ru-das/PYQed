@@ -27,6 +27,7 @@ import {
   SyllabusImportProgress,
 } from '../src/ai/importSyllabus';
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
+import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
@@ -127,10 +128,14 @@ export default function SyllabusImportScreen() {
         apiKey: apiSettings.apiKey,
         modelId: apiSettings.modelId,
         pdfWorker: pdfWorkerRef.current || undefined,
-        onProgress: (p) => setProgress(p),
+        onProgress: (p) => {
+          setProgress(p);
+          showProgress('Reading syllabus', p.message);
+        },
       });
 
       if (!result.ok) {
+        finish("Couldn't finish reading", (result.friendlyError || result.error) + ' Open PYQed to retry.');
         setErrorMessage(result.friendlyError || result.error);
         setErrorDetail(result.error);
         return;
@@ -155,6 +160,7 @@ export default function SyllabusImportScreen() {
 
       setSubjects(editable);
       setStep('review');
+      finish('Syllabus ready to review', 'Open PYQed to check the subjects.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to import syllabus.');

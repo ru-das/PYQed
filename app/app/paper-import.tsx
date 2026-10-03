@@ -34,6 +34,7 @@ import {
   NumberingGap,
 } from '../src/logic/paper';
 import { deriveQuestionType, checkNeedsReview } from '../src/ai/validators';
+import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
 import {
@@ -167,10 +168,14 @@ export default function PaperImportScreen() {
         pdfWorker: pdfWorkerRef.current || undefined,
         resumeFromPage: fromPage,
         previousPages: prevPages,
-        onProgress: (p) => setProgress(p),
+        onProgress: (p) => {
+          setProgress(p);
+          showProgress('Reading paper', p.message);
+        },
       });
 
       if (!result.ok) {
+        finish("Couldn't finish reading", (result.friendlyError || result.error) + ' Open PYQed to resume.');
         setErrorMessage(result.friendlyError || result.error);
         setPartialPages(result.partialPages);
         setResumePage(result.lastCompletedPage);
@@ -206,6 +211,7 @@ export default function PaperImportScreen() {
       }
 
       setStep('review');
+      finish('Paper ready to review', sourceName);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to read paper.');
@@ -490,13 +496,15 @@ export default function PaperImportScreen() {
             apiSettings.provider,
             apiSettings.apiKey,
             apiSettings.modelId,
-            (p) =>
+            (p) => {
               setProgress({
                 stage: 'extracting',
                 current: p.current,
                 total: p.total,
                 message: p.message,
-              }),
+              });
+              showProgress('Labelling questions', p.message);
+            },
           );
           updatedSubject = {
             ...updatedSubject,
@@ -511,13 +519,15 @@ export default function PaperImportScreen() {
             apiSettings.provider,
             apiSettings.apiKey,
             apiSettings.modelId,
-            (p) =>
+            (p) => {
               setProgress({
                 stage: 'extracting',
                 current: p.current,
                 total: p.total,
                 message: p.message,
-              }),
+              });
+              showProgress('Labelling questions', p.message);
+            },
           );
           updatedSubject = { ...updatedSubject, questions: grouped };
           await saveSubject(updatedSubject);
@@ -528,6 +538,7 @@ export default function PaperImportScreen() {
       }
     }
 
+    finish('Paper saved', `${domainQuestions.length} questions added to ${subject.name}.`);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert(
       'Paper Saved',
