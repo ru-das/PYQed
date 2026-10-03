@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { extractJSON } from '../client';
 import {
+  validateRepeatGroups,
   deriveQuestionType,
   checkNeedsReview,
   validatePageQuestions,
@@ -335,3 +336,20 @@ describe('mergeSyllabusSubjects', () => {
 });
 
 
+
+describe('validateRepeatGroups (§8.4)', () => {
+  it('drops unknown ids, reused ids and groups smaller than 2', () => {
+    const valid = new Set(['a', 'b', 'c', 'd']);
+    const res = validateRepeatGroups(
+      { groups: [['a', 'b', 'zzz'], ['b', 'c'], ['c', 'd'], ['d']] },
+      valid,
+    );
+    assert.ok(res.ok);
+    // ['b','c'] -> only 'c' left (b reused) -> dropped; ['c','d'] kept
+    assert.deepStrictEqual(res.data.groups, [['a', 'b'], ['c', 'd']]);
+  });
+
+  it('rejects a response without a groups array', () => {
+    assert.strictEqual(validateRepeatGroups({}).ok, false);
+  });
+});

@@ -30,6 +30,8 @@ import {
   topicAvgMarks,
   distinctYears,
   timesAsked,
+  askedYears,
+  collapseRepeats,
 } from '../../src/logic/ranking';
 
 const TABS = ['Topics', 'All questions', 'Papers'] as const;
@@ -45,6 +47,7 @@ export default function SubjectScreen() {
   // Sorting and Filtering state for All Questions tab
   const [sortBy, setSortBy] = useState<SortOption>('marks');
   const [filters, setFilters] = useState<QuestionFilters>({});
+  const [versionsOpenIds, setVersionsOpenIds] = useState<Set<string>>(new Set());
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -721,8 +724,10 @@ export default function SubjectScreen() {
                 </View>
 
                 {/* Questions Cards */}
-                {displayedQuestions.map((q) => {
+                {collapseRepeats(displayedQuestions).map(([q, ...otherVersions]) => {
                   const times = timesAsked(q, subject.questions);
+                  const years = askedYears(q, subject.questions);
+                  const versionsOpen = versionsOpenIds.has(q.id);
                   // Find topic name
                   let topicName: string | null = null;
                   if (q.topicId) {
@@ -806,7 +811,7 @@ export default function SubjectScreen() {
                               ]}
                             >
                               <Text style={[styles.badgeText, { color: colors.amber }]}>
-                                {times}×
+                                Asked {times}×{years.length > 0 ? ` (${years.join(', ')})` : ''}
                               </Text>
                             </View>
                           )}
@@ -859,6 +864,38 @@ export default function SubjectScreen() {
                           </Text>
                         ) : null}
                       </View>
+
+                      {/* Other versions from the same repeat group */}
+                      {otherVersions.length > 0 && (
+                        <View style={{ marginTop: Spacing.xs }}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              setVersionsOpenIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(q.id)) next.delete(q.id);
+                                else next.add(q.id);
+                                return next;
+                              })
+                            }
+                            accessibilityLabel="Toggle other versions of this question"
+                          >
+                            <Text style={{ color: colors.accent, fontWeight: '600' }}>
+                              {versionsOpen
+                                ? 'Hide other versions'
+                                : `Show ${otherVersions.length} other version${otherVersions.length > 1 ? 's' : ''}`}
+                            </Text>
+                          </TouchableOpacity>
+                          {versionsOpen &&
+                            otherVersions.map((v) => (
+                              <Text
+                                key={v.id}
+                                style={[styles.groupLabel, { color: colors.textSecondary, marginTop: 4 }]}
+                              >
+                                {v.year ?? '?'} · Q{v.number} · {v.text}
+                              </Text>
+                            ))}
+                        </View>
+                      )}
                     </TouchableOpacity>
                   );
                 })}

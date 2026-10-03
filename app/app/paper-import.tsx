@@ -45,6 +45,7 @@ import {
   newId,
 } from '../src/store/subjects';
 import { labelQuestions } from '../src/ai/labelQuestions';
+import { groupRepeats } from '../src/ai/groupRepeats';
 
 type EditableQuestion = {
   id: string;
@@ -490,8 +491,26 @@ export default function PaperImportScreen() {
             questions: labelledQuestions,
           };
           await saveSubject(updatedSubject);
+
+          // 6. Repeat groups (§8.4) for topics that received new questions
+          const grouped = await groupRepeats(
+            updatedSubject,
+            newQuestionIds,
+            apiSettings.provider,
+            apiSettings.apiKey,
+            apiSettings.modelId,
+            (p) =>
+              setProgress({
+                stage: 'extracting',
+                current: p.current,
+                total: p.total,
+                message: p.message,
+              }),
+          );
+          updatedSubject = { ...updatedSubject, questions: grouped };
+          await saveSubject(updatedSubject);
         } catch (err) {
-          console.warn('Topic labelling failed:', err);
+          console.warn('Topic labelling / repeat grouping failed:', err);
           // Non-fatal: paper is already saved with unassigned questions
         }
       }

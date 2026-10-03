@@ -2,6 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
   timesAsked,
+  askedYears,
+  collapseRepeats,
+  applyRepeatGroups,
   topicWeight,
   topicAvgMarks,
   unitWeight,
@@ -276,5 +279,49 @@ describe('questionCountByTopic, distinctYears, maxUnitWeight', () => {
       createTestQuestion({ id: 'q2', topicId: 't2', marks: 20 }),
     ];
     assert.strictEqual(maxUnitWeight(units, qs, 1), 20);
+  });
+});
+
+describe('repeat groups (AGENTS.md §8.4)', () => {
+  it('timesAsked is 1 for a dangling group with a single member', () => {
+    const q = createTestQuestion({ id: 'q1', repeatGroupId: 'gone' });
+    assert.strictEqual(timesAsked(q, [q]), 1);
+  });
+
+  it('askedYears returns distinct sorted non-null years of the group', () => {
+    const all = [
+      createTestQuestion({ id: 'a', paperId: 'p1', year: 2021, repeatGroupId: 'g' }),
+      createTestQuestion({ id: 'b', paperId: 'p2', year: 2019, repeatGroupId: 'g' }),
+      createTestQuestion({ id: 'c', paperId: 'p3', year: null, repeatGroupId: 'g' }),
+      createTestQuestion({ id: 'd', paperId: 'p4', year: 2019, repeatGroupId: 'g' }),
+    ];
+    assert.deepStrictEqual(askedYears(all[0], all), [2019, 2021]);
+    const solo = createTestQuestion({ id: 's', year: 2023 });
+    assert.deepStrictEqual(askedYears(solo, [solo]), [2023]);
+  });
+
+  it('collapseRepeats: one entry per group, newest wording first, order kept', () => {
+    const qs = [
+      createTestQuestion({ id: 'x', year: 2020 }),
+      createTestQuestion({ id: 'a', year: 2019, repeatGroupId: 'g' }),
+      createTestQuestion({ id: 'y', year: 2018 }),
+      createTestQuestion({ id: 'b', year: 2022, repeatGroupId: 'g' }),
+    ];
+    const out = collapseRepeats(qs).map((g) => g.map((q) => q.id));
+    assert.deepStrictEqual(out, [['x'], ['b', 'a'], ['y']]);
+  });
+
+  it('applyRepeatGroups replaces groups for the topic only', () => {
+    const qs = [
+      createTestQuestion({ id: 'a', repeatGroupId: 'old' }),
+      createTestQuestion({ id: 'b', repeatGroupId: 'old' }),
+      createTestQuestion({ id: 'c' }),
+      createTestQuestion({ id: 'other', repeatGroupId: 'keep' }),
+    ];
+    const out = applyRepeatGroups(qs, new Set(['a', 'b', 'c']), [['b', 'c']]);
+    const byId = Object.fromEntries(out.map((q) => [q.id, q.repeatGroupId]));
+    assert.strictEqual(byId.a, null);
+    assert.ok(byId.b && byId.b === byId.c);
+    assert.strictEqual(byId.other, 'keep');
   });
 });

@@ -113,3 +113,24 @@ Rules:
 Return ONLY this JSON (no extra text):
 {"labels":[{"q":"<question id>","topic":"<topic id or null>","confidence":"high or low"}]}`;
 }
+
+/**
+ * §8.4 — Repeat groups prompt.
+ * Input: all questions of ONE topic as "QuestionID | year | text".
+ * Output: groups of question IDs that ask essentially the same thing.
+ */
+export function repeatGroupsPrompt(questions: string): string {
+  return `You are finding repeated questions in university exam papers. All questions below belong to the same syllabus topic.
+
+Questions (format: QuestionID | Year | QuestionText):
+${questions}
+
+Rules:
+- Group questions that ask essentially the same thing, even if worded differently or with different numbers.
+- Do NOT group questions that are merely about the same topic but ask for different things.
+- Each question ID may appear in at most one group. Every group needs at least 2 IDs.
+- Leave out questions that have no repeat. Use ONLY the IDs listed above.
+
+Return ONLY this JSON (no extra text):
+{"groups":[["<id>","<id>"],["<id>","<id>","<id>"]]}`;
+}

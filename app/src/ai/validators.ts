@@ -333,11 +333,50 @@ export function validateTopicLabels(
   return { ok: true, data: { labels } };
 }
 
+// --- §8.4 Repeat Groups Validator ---
+
+export type RepeatGroupsResponse = { groups: string[][] };
+
+/** Drops unknown IDs, IDs already used by an earlier group, and groups of size < 2. */
+export function validateRepeatGroups(
+  data: unknown,
+  validQuestionIds?: Set<string>,
+): ValidationResult<RepeatGroupsResponse> {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'Response root must be a JSON object' };
+  }
+  const root = data as Record<string, unknown>;
+  if (!Array.isArray(root.groups)) {
+    return { ok: false, error: 'Response must contain a "groups" array' };
+  }
+
+  const used = new Set<string>();
+  const groups: string[][] = [];
+  for (const raw of root.groups) {
+    if (!Array.isArray(raw)) continue;
+    const group: string[] = [];
+    for (const id of raw) {
+      if (typeof id !== 'string') continue;
+      const q = id.trim();
+      if (!q || used.has(q)) continue;
+      if (validQuestionIds && !validQuestionIds.has(q)) continue;
+      if (!group.includes(q)) group.push(q);
+    }
+    // Only a kept group claims its IDs
+    if (group.length >= 2) {
+      group.forEach((id) => used.add(id));
+      groups.push(group);
+    }
+  }
+  return { ok: true, data: { groups } };
+}
+
 /** Registry of validators */
 export const validators: Record<string, (data: unknown) => ValidationResult<any>> = {
   pageQuestions: validatePageQuestions,
   syllabusStructure: validateSyllabusStructure,
   topicLabels: (data) => validateTopicLabels(data),
+  repeatGroups: (data) => validateRepeatGroups(data),
   __test: validatePingTest,
 };
 

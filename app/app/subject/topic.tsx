@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { getSubject, saveSubject, Subject, Question, Unit, Topic } from '../../src/store/subjects';
-import { defaultSort, timesAsked } from '../../src/logic/ranking';
+import { askedYears, collapseRepeats, defaultSort, timesAsked } from '../../src/logic/ranking';
 
 export default function TopicScreen() {
   const colors = useThemeColors();
@@ -32,6 +32,7 @@ export default function TopicScreen() {
 
   const [subject, setSubject] = useState<Subject | null>(null);
   const [movingQuestion, setMovingQuestion] = useState<Question | null>(null);
+  const [versionsOpenIds, setVersionsOpenIds] = useState<Set<string>>(new Set());
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -79,6 +80,15 @@ export default function TopicScreen() {
     ? 'Unassigned Questions'
     : currentTopic?.name || 'Topic Questions';
 
+  const toggleVersions = (id: string) => {
+    setVersionsOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const toggleExpand = (id: string) => {
     setExpandedQuestionIds((prev) => {
       const next = new Set(prev);
@@ -100,6 +110,7 @@ export default function TopicScreen() {
         unitId: targetUnitId,
         editedByUser: true, // User edit wins! AI will never overwrite
         topicConfidence: null,
+        repeatGroupId: null, // repeat groups are per topic (§8.4)
       };
     });
 
@@ -177,8 +188,10 @@ export default function TopicScreen() {
               </Text>
             </View>
 
-            {questions.map((q) => {
+            {collapseRepeats(questions).map(([q, ...otherVersions]) => {
               const times = timesAsked(q, subject.questions);
+              const years = askedYears(q, subject.questions);
+              const versionsOpen = versionsOpenIds.has(q.id);
               const isExpanded = expandedQuestionIds.has(q.id);
 
               return (
@@ -246,7 +259,7 @@ export default function TopicScreen() {
                             { color: times > 1 ? colors.amber : colors.textSecondary },
                           ]}
                         >
-                          Asked {times}×
+                          Asked {times}×{times > 1 && years.length > 0 ? ` (${years.join(', ')})` : ''}
                         </Text>
                       </View>
 
@@ -322,6 +335,31 @@ export default function TopicScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
+
+                  {/* Other versions from the same repeat group */}
+                  {otherVersions.length > 0 && (
+                    <View style={{ marginTop: Spacing.xs }}>
+                      <TouchableOpacity
+                        onPress={() => toggleVersions(q.id)}
+                        accessibilityLabel="Toggle other versions of this question"
+                      >
+                        <Text style={[styles.expandText, { color: colors.accent }]}>
+                          {versionsOpen
+                            ? 'Hide other versions'
+                            : `Show ${otherVersions.length} other version${otherVersions.length > 1 ? 's' : ''}`}
+                        </Text>
+                      </TouchableOpacity>
+                      {versionsOpen &&
+                        otherVersions.map((v) => (
+                          <Text
+                            key={v.id}
+                            style={[styles.groupLabel, { color: colors.textSecondary, marginTop: 4 }]}
+                          >
+                            {v.year ?? '?'} · Q{v.number} · {v.text}
+                          </Text>
+                        ))}
+                    </View>
+                  )}
                 </View>
               );
             })}

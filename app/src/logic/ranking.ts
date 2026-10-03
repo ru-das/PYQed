@@ -2,7 +2,7 @@
  * Pure ranking, sorting, and filtering logic (AGENTS.md §9).
  * Every number shown in the app is computed here — never from AI.
  */
-import { Question, Unit } from './subject';
+import { Question, Unit, newId } from './subject';
 
 // ─── Times Asked ────────────────────────────────────────────────
 
@@ -20,6 +20,69 @@ export function timesAsked(
   );
   const paperIds = new Set(group.map((q) => q.paperId));
   return Math.max(1, paperIds.size);
+}
+
+/**
+ * Distinct non-null years (ascending) in the question's repeat group.
+ */
+export function askedYears(
+  question: Question,
+  allQuestions: Question[],
+): number[] {
+  const group = question.repeatGroupId
+    ? allQuestions.filter((q) => q.repeatGroupId === question.repeatGroupId)
+    : [question];
+  const years = new Set<number>();
+  for (const q of group) if (q.year !== null) years.add(q.year);
+  return Array.from(years).sort((a, b) => a - b);
+}
+
+/**
+ * One entry per repeat group, in order of first appearance in `sorted`.
+ * Each entry is [representative, ...otherVersions]; the representative is
+ * the most recent wording. Ungrouped questions are single-item entries.
+ */
+export function collapseRepeats(sorted: Question[]): Question[][] {
+  const out: Question[][] = [];
+  const byGroup = new Map<string, Question[]>();
+  for (const q of sorted) {
+    if (!q.repeatGroupId) {
+      out.push([q]);
+      continue;
+    }
+    let g = byGroup.get(q.repeatGroupId);
+    if (!g) {
+      g = [];
+      byGroup.set(q.repeatGroupId, g);
+      out.push(g);
+    }
+    g.push(q);
+  }
+  for (const g of out) {
+    g.sort((a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity));
+  }
+  return out;
+}
+
+/**
+ * Replace repeat groups for one topic's questions (§8.4).
+ * Old group IDs on those questions are cleared; each AI group gets a fresh ID.
+ */
+export function applyRepeatGroups(
+  questions: Question[],
+  topicQuestionIds: Set<string>,
+  groups: string[][],
+): Question[] {
+  const newGroupOf = new Map<string, string>();
+  for (const g of groups) {
+    const id = newId();
+    for (const qid of g) newGroupOf.set(qid, id);
+  }
+  return questions.map((q) =>
+    topicQuestionIds.has(q.id)
+      ? { ...q, repeatGroupId: newGroupOf.get(q.id) ?? null }
+      : q,
+  );
 }
 
 // ─── Topic Weight ───────────────────────────────────────────────
