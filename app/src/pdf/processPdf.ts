@@ -1,4 +1,4 @@
-import { readAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 import { MAX_PAGES_PER_IMPORT } from '../config';
 import { PdfWorkerHandle, PageResult } from './PdfWorker';
 
@@ -31,7 +31,7 @@ export type ProcessPdfResult = {
 
 /**
  * Orchestrates PDF processing:
- * 1. Reads local PDF file as base64 using expo-file-system/legacy
+ * 1. Reads local PDF file as base64 using expo-file-system
  * 2. Loads into the hidden pdf.js WebView worker
  * 3. Extracts pages sequentially (one page at a time)
  * 4. Categorizes each page as either 'text' (>200 non-space chars) or 'image' (~1600px JPEG)
@@ -48,9 +48,8 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
 
   // Stage 1: Read file
   onProgress?.({ stage: 'reading', current: 0, total: 1 });
-  const base64 = await readAsStringAsync(fileUri, {
-    encoding: EncodingType.Base64,
-  });
+  // New File API reads content:// URIs directly (the legacy API refuses them in Expo Go).
+  const base64 = await new File(fileUri).base64();
 
   // Stage 2: Load into pdf.js worker
   onProgress?.({ stage: 'loading', current: 0, total: 1 });

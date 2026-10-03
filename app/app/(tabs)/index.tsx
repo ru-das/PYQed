@@ -22,7 +22,7 @@ export default function HomeScreen() {
   const openShared = async () => {
     try {
       // No mime filter: WhatsApp often hands over .pyqed.json as octet-stream.
-      const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: false });
       if (r.canceled || !r.assets?.length) return;
       const s = await importSubjectFile(r.assets[0].uri);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

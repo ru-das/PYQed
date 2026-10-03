@@ -45,7 +45,7 @@ export default function DevPdfScreen() {
     try {
       const docResult = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: false,
       });
 
       if (docResult.canceled || !docResult.assets || docResult.assets.length === 0) {
