@@ -13,6 +13,7 @@ import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme
 import {
   getSubject,
   saveSubject,
+  exportSubjectFile,
   summarize,
   summaryLine,
   Subject,
@@ -33,7 +34,17 @@ import {
   askedYears,
   collapseRepeats,
 } from '../../src/logic/ranking';
+import * as Sharing from 'expo-sharing';
 import { topicProgress } from '../../src/logic/practice';
+
+async function shareSubject(s: Subject, withImages: boolean) {
+  try {
+    const uri = await exportSubjectFile(s, withImages);
+    await Sharing.shareAsync(uri, { mimeType: 'application/json', dialogTitle: `Share ${s.name}` });
+  } catch (e: any) {
+    Alert.alert('Could not share', e?.message || 'Something went wrong.');
+  }
+}
 
 const TABS = ['Topics', 'All questions', 'Papers'] as const;
 
@@ -124,6 +135,20 @@ export default function SubjectScreen() {
         options={{
           title: subject.name,
           headerRight: () => (
+            <View style={{ flexDirection: 'row' }}>
+            <TouchableOpacity
+              onPress={() =>
+                Alert.alert('Share subject', 'Page images make the file much bigger.', [
+                  { text: 'Share', onPress: () => shareSubject(subject, false) },
+                  { text: 'Include page images', onPress: () => shareSubject(subject, true) },
+                  { text: 'Cancel', style: 'cancel' },
+                ])
+              }
+              accessibilityLabel="Share subject"
+              style={styles.headerBtn}
+            >
+              <Ionicons name="share-outline" size={22} color={colors.text} />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() =>
                 router.push({ pathname: '/subject/edit', params: { id: subject.id } })
@@ -133,6 +158,7 @@ export default function SubjectScreen() {
             >
               <Ionicons name="pencil" size={20} color={colors.text} />
             </TouchableOpacity>
+            </View>
           ),
         }}
       />

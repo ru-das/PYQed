@@ -6,6 +6,8 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import { migrate, newId, summarize, Subject, SubjectMeta, CURRENT_VERSION } from '../logic/subject';
 
+import { parseShareFile, shareFileName, toShareFile } from '../logic/share';
+
 export * from '../logic/subject';
 
 const root = () => new Directory(Paths.document, 'pyqed');
@@ -82,6 +84,42 @@ export async function savePageImage(
   const cleanBase64 = base64.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
   await writeAsStringAsync(f.uri, cleanBase64, { encoding: EncodingType.Base64 });
   return f.uri;
+}
+
+/** Write {name}.pyqed.json to the cache dir and return its uri. Page images are included only if asked. */
+export async function exportSubjectFile(s: Subject, withImages: boolean): Promise<string> {
+  let images: Record<string, string> | undefined;
+  if (withImages) {
+    images = {};
+    const dir = new Directory(subjectsDir(), s.id, 'pages');
+    if (dir.exists) {
+      for (const f of dir.list()) {
+        if (f instanceof File) images[f.name] = await f.base64();
+      }
+    }
+  }
+  const out = new File(Paths.cache, shareFileName(s.name));
+  if (out.exists) out.delete();
+  out.create({ intermediates: true });
+  out.write(JSON.stringify(toShareFile(s, images)));
+  return out.uri;
+}
+
+/** Validate a picked .pyqed.json and save it as a new subject. Needs no API key. */
+export async function importSubjectFile(uri: string): Promise<Subject> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await new File(uri).text());
+  } catch {
+    throw new Error("This isn't a valid PYQed subject file.");
+  }
+  const { subject, images } = parseShareFile(raw);
+  for (const [name, b64] of Object.entries(images)) {
+    const [paperId, n] = name.replace(/\.jpg$/, '').split(/_(?=\d+$)/);
+    await savePageImage(subject.id, paperId, Number(n), b64);
+  }
+  await saveSubject(subject);
+  return subject;
 }
 
 export function pageImageUri(

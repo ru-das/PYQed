@@ -1,7 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Haptics from 'expo-haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { listSubjects, summaryLine, SubjectMeta } from '../../src/store/subjects';
+import { listSubjects, importSubjectFile, summaryLine, SubjectMeta } from '../../src/store/subjects';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 
@@ -15,6 +17,20 @@ export default function HomeScreen() {
       listSubjects().then(setSubjects);
     }, [])
   );
+
+  // Pick a .pyqed.json, validate + save it as a new subject. No API key needed.
+  const openShared = async () => {
+    try {
+      // No mime filter: WhatsApp often hands over .pyqed.json as octet-stream.
+      const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (r.canceled || !r.assets?.length) return;
+      const s = await importSubjectFile(r.assets[0].uri);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push({ pathname: '/subject/[id]', params: { id: s.id } });
+    } catch (e: any) {
+      Alert.alert('Could not open file', e?.message || 'Something went wrong.');
+    }
+  };
 
   if (subjects === null) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;
@@ -46,6 +62,13 @@ export default function HomeScreen() {
           )}
         />
         <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.importBtn, { borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: Spacing.sm }]}
+            onPress={openShared}
+            accessibilityLabel="Open shared subject"
+          >
+            <Ionicons name="download-outline" size={20} color={colors.text} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.importBtn, { borderColor: colors.accent, backgroundColor: colors.card }]}
             onPress={() => router.push('/syllabus-import')}
@@ -120,6 +143,20 @@ export default function HomeScreen() {
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
               Create a subject folder and add your units, topics, and papers one by one.
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={openShared}
+            accessibilityLabel="Open shared subject"
+          >
+            <View style={styles.optionHeader}>
+              <Ionicons name="download-outline" size={20} color={colors.accent} />
+              <Text style={[styles.optionTitle, { color: colors.text }]}>Open shared subject</Text>
+            </View>
+            <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
+              Got a .pyqed.json from a friend? Open it here. No API key needed.
             </Text>
           </TouchableOpacity>
         </View>
