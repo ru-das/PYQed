@@ -18,7 +18,7 @@ export const ALT_MODEL_OPENROUTER = 'google/gemma-4-31b-it:free';
 export const MAX_PAGES_PER_IMPORT = 30;
 
 // AI client settings
-export const AI_TIMEOUT_MS = 120_000;
+export const AI_TIMEOUT_MS = 300_000; // syllabus pages can take well over 2 min
 
 // Image processing settings
 export const IMAGE_LONG_EDGE = 1600;

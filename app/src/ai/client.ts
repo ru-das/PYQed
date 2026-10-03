@@ -267,7 +267,11 @@ export async function generateJSON<T = unknown>(
     withJsonMime: boolean,
   ): Promise<{ text: string; status: number; error?: string }> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AI_TIMEOUT_MS);
     try {
       if (params.provider === 'aistudio') {
         return await callGoogleAIStudio(
@@ -289,7 +293,8 @@ export async function generateJSON<T = unknown>(
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
-      if (err?.name === 'AbortError' || msg.toLowerCase().includes('abort')) {
+      // RN may surface our abort as a generic network error, so trust the flag
+      if (timedOut || err?.name === 'AbortError' || msg.toLowerCase().includes('abort')) {
         return {
           text: '',
           status: 0,

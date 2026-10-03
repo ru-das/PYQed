@@ -260,7 +260,7 @@ export function validateSyllabusStructure(
 
         let details: string | undefined = undefined;
         if (typeof t.details === 'string' && t.details.trim().length > 0) {
-          details = t.details.trim().slice(0, 1000);
+          details = t.details.trim().slice(0, 200);
         }
 
         topics.push({ name: tName, details });

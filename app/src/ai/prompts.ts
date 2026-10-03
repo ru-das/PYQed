@@ -66,7 +66,7 @@ Instructions:
 - Do NOT invent subjects, units, or topics that aren't in the syllabus.
 - Skip marks distribution tables, book lists, reference lists, course outcomes (COs/POs), and any non-structural content — UNLESS it's the only structure on the page.
 - If a subject has no explicit unit headings, create one unit per heading block or section.
-- "details" for each topic = the syllabus text describing that topic (brief summary or keywords if lengthy, otherwise empty string).
+- "details" for each topic = the syllabus text describing that topic (a few keywords, at most ~15 words; empty string if the topic name says it all).
 - Subject "code" = the course code if printed (e.g. "CS201"), otherwise null.
 
 Output MUST be valid JSON adhering strictly to this schema:
