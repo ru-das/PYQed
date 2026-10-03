@@ -143,7 +143,11 @@ export async function importSyllabus(
       },
     });
 
-    pages = pdfResult.pages.map((p) => p.result);
+    // Always send the page image, even for text pages: table text extracts in a messy order.
+    pages = pdfResult.pages.flatMap((p): SyllabusPageContent[] => {
+      const base64 = p.result.base64;
+      return base64 ? [{ type: 'image', base64 }] : [];
+    });
   } else if (source.type === 'photos') {
     pages = source.imageBase64s.map((base64) => ({
       type: 'image',
