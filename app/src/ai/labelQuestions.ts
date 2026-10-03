@@ -1,6 +1,6 @@
 /**
  * Question topic labelling orchestrator (AGENTS.md §8.3).
- * Runs after a paper is saved. Sends questions in chunks of ≤ 25 to Gemma 4.
+ * Runs after a paper is saved. Sends questions in chunks of ≤ 25 to the AI.
  * Labels each question with a topic ID; unknown topic IDs -> null (Unassigned).
  * unitId is derived from the topic by code.
  * User edits (editedByUser) are NEVER overwritten.
@@ -72,7 +72,7 @@ export function findUnitIdForTopic(units: Unit[], topicId: string): string | nul
 }
 
 /**
- * Label questions with topic IDs using Gemma 4 (§8.3).
+ * Label questions with topic IDs using AI (§8.3).
  * Only labels questions in questionIds that have not had their topic edited by user.
  * Returns the full questions array with new labels applied.
  */

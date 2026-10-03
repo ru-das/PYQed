@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -30,6 +29,7 @@ import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
+import { ImportProgress } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
 import { move } from '../src/logic/list';
 
@@ -453,19 +453,8 @@ export default function SyllabusImportScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.headerBlock}>
-            <View
-              style={[
-                styles.iconCircle,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <Ionicons name="sparkles" size={36} color={colors.accent} />
-            </View>
-            <Text style={[styles.h1, { color: colors.text }]}>
-              Import a Syllabus
-            </Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Gemma 4 will read the document, detect courses, units, and topics,
+              AI will read the document, detect courses, units, and topics,
               and build your question bank structure automatically.
             </Text>
           </View>
@@ -610,7 +599,7 @@ export default function SyllabusImportScreen() {
                   onPress={handleDonePasting}
                   accessibilityLabel="Analyze Pasted Text"
                 >
-                  <Ionicons name="sparkles" size={18} color={colors.accentText} />
+                  <Ionicons name="checkmark" size={18} color={colors.accentText} />
                   <Text
                     style={[
                       styles.primaryBtnText,
@@ -691,40 +680,12 @@ export default function SyllabusImportScreen() {
               </View>
             </View>
           ) : (
-            <View style={styles.progressContainer}>
-              <ActivityIndicator size="large" color={colors.accent} />
-              <Text
-                style={[
-                  styles.progressStage,
-                  { color: colors.text, marginTop: Spacing.md },
-                ]}
-              >
-                {progress.message}
-              </Text>
-              <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
-                ⏱ {elapsedSec}s elapsed (a call can take 1–2 min on the free tier)
-              </Text>
-              {progress.total > 1 && (
-                <Text
-                  style={[styles.progressCount, { color: colors.textSecondary }]}
-                >
-                  {progress.stage === 'reading'
-                    ? `Page ${progress.current} of ${progress.total}`
-                    : progress.stage === 'analyzing'
-                    ? `Processing page ${progress.current} of ${progress.total}`
-                    : 'Finalizing structure...'}
-                </Text>
-              )}
-              <Text
-                style={[
-                  styles.privacySubtext,
-                  { color: colors.textSecondary, marginTop: Spacing.lg },
-                ]}
-              >
-                Gemma 4 is reading subject headings and unit topics. Nothing is
-                saved until you review it.
-              </Text>
-            </View>
+            <ImportProgress
+              message={progress.message}
+              elapsedSec={elapsedSec}
+              current={progress.current}
+              total={progress.total}
+            />
           )}
         </View>
       )}
@@ -1202,29 +1163,13 @@ const styles = StyleSheet.create({
     gap: Spacing.lg,
   },
   headerBlock: {
-    alignItems: 'center',
     paddingVertical: Spacing.md,
     gap: Spacing.xs,
   },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
-  },
-  h1: {
-    fontSize: FontSize.h1,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
   subtitle: {
     fontSize: FontSize.caption + 1,
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 20,
-    paddingHorizontal: Spacing.md,
   },
   cardsList: {
     gap: Spacing.md,
@@ -1285,25 +1230,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.lg,
-  },
-  progressContainer: {
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-  },
-  progressStage: {
-    fontSize: FontSize.body,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  progressCount: {
-    fontSize: FontSize.caption,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  privacySubtext: {
-    fontSize: FontSize.caption,
-    textAlign: 'center',
-    lineHeight: 18,
   },
   errorCard: {
     width: '100%',

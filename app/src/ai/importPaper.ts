@@ -1,6 +1,6 @@
 /**
  * Paper Import orchestrator (AGENTS.md §8.2, §4).
- * Reads each page (text or scanned image), invokes Gemma 4 sequentially per page.
+ * Reads each page (text or scanned image), invokes the AI sequentially per page.
  * Tracks continuity (previousLastQuestion), merges continues_previous,
  * extracts year and metadata, supports resuming on rate limit / network error.
  */
@@ -214,7 +214,7 @@ export async function importPaper(
     };
   }
 
-  // --- Step 2: Sequential Gemma 4 extraction per page ---
+  // --- Step 2: Sequential AI extraction per page ---
   const extractedPages: PageExtraction[] = [...previousPages];
   let detectedYear: number | null = null;
   let detectedSession: string | null = null;

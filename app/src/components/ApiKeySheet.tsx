@@ -154,7 +154,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
                 Add a free Google AI Studio key
               </Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                Required for Gemma 4 to analyze syllabus and exam papers.
+                Required for AI to analyze syllabus and exam papers.
               </Text>
             </View>
             <TouchableOpacity
@@ -392,9 +392,12 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
           </View>
 
           {/* Privacy Note */}
-          <Text style={[styles.privacyNote, { color: colors.textSecondary }]}>
-            🔒 Your key is stored only on this device in secure storage and never sent to any server.
-          </Text>
+          <View style={styles.privacyRow}>
+            <Ionicons name="lock-closed-outline" size={14} color={colors.textSecondary} />
+            <Text style={[styles.privacyNote, { color: colors.textSecondary, flex: 1 }]}>
+              Your key is stored only on this device in secure storage and never sent to any server.
+            </Text>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -548,9 +551,15 @@ const styles = StyleSheet.create({
     fontSize: FontSize.body - 1,
     fontWeight: '700',
   },
+  privacyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+  },
   privacyNote: {
     fontSize: FontSize.tiny + 1,
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 16,
   },
 });

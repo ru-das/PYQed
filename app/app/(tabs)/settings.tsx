@@ -10,7 +10,6 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,7 +31,6 @@ import { generateJSON } from '../../src/ai/client';
 
 export default function SettingsScreen() {
   const colors = useThemeColors();
-  const router = useRouter();
 
   const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
   const [apiKey, setApiKey] = useState<string>('');
@@ -460,38 +458,6 @@ export default function SettingsScreen() {
         </View>
       )}
 
-      {/* Developer: Test page (M1) */}
-      <TouchableOpacity
-        style={[
-          styles.aboutCard,
-          { backgroundColor: colors.card, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 44 },
-        ]}
-        onPress={() => router.push('/dev')}
-        accessibilityLabel="Open test page"
-      >
-        <Ionicons name="flask-outline" size={20} color={colors.accent} />
-        <Text style={[styles.aboutTitle, { color: colors.text, flex: 1, marginBottom: 0 }]}>
-          Developer: Test page (Gemma 4 AI)
-        </Text>
-        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-      </TouchableOpacity>
-
-      {/* Developer: PDF Worker test (M3) */}
-      <TouchableOpacity
-        style={[
-          styles.aboutCard,
-          { backgroundColor: colors.card, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 44 },
-        ]}
-        onPress={() => router.push('/dev-pdf')}
-        accessibilityLabel="Open PDF worker test page"
-      >
-        <Ionicons name="document-text-outline" size={20} color={colors.accent} />
-        <Text style={[styles.aboutTitle, { color: colors.text, flex: 1, marginBottom: 0 }]}>
-          Developer: PDF Worker test (pdf.js)
-        </Text>
-        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-      </TouchableOpacity>
-
       {/* Section: About & Privacy */}
       <View
         style={[
@@ -502,14 +468,14 @@ export default function SettingsScreen() {
         <Text style={[styles.aboutTitle, { color: colors.text }]}>
           About PYQed
         </Text>
-        <Text style={[styles.aboutBody, { color: colors.textSecondary }]}>
-          Powered by <Text style={{ fontWeight: '700' }}>Gemma 4</Text>, an open-weight model by Google DeepMind.
-        </Text>
         <Text style={[styles.aboutBody, { color: colors.textSecondary, marginTop: Spacing.sm }]}>
-          🔒 <Text style={{ fontWeight: '600' }}>Privacy:</Text> Papers and syllabi are sent to your chosen provider only during import. Everything else stays strictly on your phone. Your API key is stored securely in hardware-backed storage and never logged or exported.
+          <Text style={{ fontWeight: '600' }}>Privacy:</Text> Papers and syllabi are sent to your chosen provider only during import. Everything else stays strictly on your phone. Your API key is stored securely in hardware-backed storage and never logged or exported.
         </Text>
         <Text style={[styles.versionText, { color: colors.textSecondary, marginTop: Spacing.md }]}>
-          Version 1.0.0 • Built for DEV Hacktoberfest 2026
+          Version 1.0.0
+        </Text>
+        <Text style={[styles.versionText, { color: colors.textSecondary, marginTop: Spacing.xs }]}>
+          Made with ❤️ by Rupam
         </Text>
       </View>
     </ScrollView>

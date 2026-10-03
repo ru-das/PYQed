@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -37,6 +36,7 @@ import { deriveQuestionType, checkNeedsReview } from '../src/ai/validators';
 import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
+import { ImportProgress } from '../src/components/ImportProgress';
 import {
   getSubject,
   saveSubject,
@@ -97,7 +97,7 @@ export default function PaperImportScreen() {
   // Elapsed seconds for the current AI call; restarts whenever progress moves on
   const [elapsedSec, setElapsedSec] = useState(0);
   useEffect(() => {
-    if (step !== 'processing' || errorMessage) return;
+    if ((step !== 'processing' && step !== 'labelling') || errorMessage) return;
     const start = Date.now();
     setElapsedSec(0);
     const tick = setInterval(
@@ -476,7 +476,7 @@ export default function PaperImportScreen() {
 
     await saveSubject(updatedSubject);
 
-    // 5. Trigger topic labelling with Gemma 4 if syllabus units exist
+    // 5. Trigger topic labelling if syllabus units exist
     if (updatedSubject.units.length > 0) {
       const apiSettings = await getApiSettings();
       if (apiSettings.apiKey && apiSettings.apiKey.trim().length > 0) {
@@ -596,23 +596,12 @@ export default function PaperImportScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.headerBlock}>
-            <View
-              style={[
-                styles.iconCircle,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <Ionicons name="document-text" size={36} color={colors.accent} />
-            </View>
-            <Text style={[styles.h1, { color: colors.text }]}>
-              Add Past Papers
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            <Text style={[styles.subtitle, { color: colors.text, fontWeight: '700' }]}>
               {subject ? `For ${subject.name}` : 'Select a PYQ paper'}
             </Text>
             <Text style={[styles.bodyText, { color: colors.textSecondary }]}>
               Add scanned or digital university question papers (PDF or photos).
-              Gemma 4 will extract every question with numbers, marks, and
+              AI will extract every question with numbers, marks, and
               sections.
             </Text>
           </View>
@@ -772,69 +761,25 @@ export default function PaperImportScreen() {
               </View>
             </View>
           ) : (
-            <View style={styles.progressContainer}>
-              <ActivityIndicator size="large" color={colors.accent} />
-              <Text
-                style={[
-                  styles.progressStage,
-                  { color: colors.text, marginTop: Spacing.md },
-                ]}
-              >
-                {progress.message}
-              </Text>
-              <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
-                ⏱ {elapsedSec}s elapsed (a call can take 1–2 min on the free tier)
-              </Text>
-              {progress.total > 1 && (
-                <Text
-                  style={[styles.progressCount, { color: colors.textSecondary }]}
-                >
-                  Reading page {progress.current} of {progress.total}
-                </Text>
-              )}
-              <Text
-                style={[
-                  styles.privacySubtext,
-                  { color: colors.textSecondary, marginTop: Spacing.lg },
-                ]}
-              >
-                Gemma 4 is reading each question, marks, and sections. Your original
-                page images will be shown beside the questions in review.
-              </Text>
-            </View>
+            <ImportProgress
+              message={progress.message}
+              elapsedSec={elapsedSec}
+              current={progress.current}
+              total={progress.total}
+            />
           )}
         </View>
       )}
 
-      {/* --- Step: Labelling with Gemma 4 --- */}
+      {/* --- Step: Labelling --- */}
       {step === 'labelling' && (
         <View style={styles.centerContent}>
-          <View style={styles.progressContainer}>
-            <ActivityIndicator size="large" color={colors.accent} />
-            <Text
-              style={[
-                styles.progressStage,
-                { color: colors.text, marginTop: Spacing.md },
-              ]}
-            >
-              {progress.message || 'Labelling topics with Gemma 4...'}
-            </Text>
-            {progress.total > 1 && (
-              <Text
-                style={[styles.progressCount, { color: colors.textSecondary }]}
-              >
-                Chunk {progress.current} of {progress.total}
-              </Text>
-            )}
-            <Text
-              style={[
-                styles.privacySubtext,
-                { color: colors.textSecondary, marginTop: Spacing.lg },
-              ]}
-            >
-              Matching questions to syllabus topics. Questions without a clear match will appear under Unassigned.
-            </Text>
-          </View>
+          <ImportProgress
+            message={progress.message || 'Labelling topics...'}
+            elapsedSec={elapsedSec}
+            current={progress.current}
+            total={progress.total}
+          />
         </View>
       )}
 
@@ -1435,23 +1380,8 @@ const styles = StyleSheet.create({
     gap: Spacing.lg,
   },
   headerBlock: {
-    alignItems: 'center',
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
-  },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.xs,
-  },
-  h1: {
-    fontSize: FontSize.h1,
-    fontWeight: '700',
-    textAlign: 'center',
   },
   h2: {
     fontSize: FontSize.h2,
@@ -1460,11 +1390,11 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: FontSize.body,
     fontWeight: '600',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   bodyText: {
     fontSize: FontSize.caption + 1,
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 20,
     marginTop: 4,
   },
@@ -1512,24 +1442,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.lg,
-  },
-  progressContainer: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-  },
-  progressStage: {
-    fontSize: FontSize.h3,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  progressCount: {
-    fontSize: FontSize.caption,
-  },
-  privacySubtext: {
-    fontSize: FontSize.caption,
-    textAlign: 'center',
-    lineHeight: 18,
   },
   errorCard: {
     width: '100%',

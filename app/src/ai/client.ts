@@ -1,5 +1,5 @@
 /**
- * AI client — calls Google AI Studio or OpenRouter with Gemma 4.
+ * AI client — calls Google AI Studio or OpenRouter with the configured model.
  * AGENTS.md §7.
  */
 
@@ -86,7 +86,7 @@ function toFriendlyError(
     if (elapsedMs > 5000) {
       return {
         error: `Connection dropped after ${Math.round(elapsedMs / 1000)}s: ${rawMessage}`,
-        friendlyError: `The connection dropped while Gemma was reading (after ${Math.round(
+        friendlyError: `The connection dropped while AI was reading (after ${Math.round(
           elapsedMs / 1000,
         )}s). Try again.`,
       };

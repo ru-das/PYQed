@@ -74,7 +74,7 @@ export default function HomeScreen() {
             onPress={() => router.push('/syllabus-import')}
             accessibilityLabel="Import syllabus"
           >
-            <Ionicons name="sparkles" size={18} color={colors.accent} />
+            <Ionicons name="document-text-outline" size={18} color={colors.accent} />
             <Text style={[styles.importBtnText, { color: colors.accent }]}>Import syllabus</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -104,7 +104,7 @@ export default function HomeScreen() {
 
         <Text style={[styles.title, { color: colors.text }]}>No subjects yet</Text>
         <Text style={[styles.description, { color: colors.textSecondary }]}>
-          Get started in one of two ways:
+          Start from a syllabus, or set up a subject yourself.
         </Text>
 
         <View style={styles.cardContainer}>
@@ -117,13 +117,13 @@ export default function HomeScreen() {
             accessibilityLabel="Import a syllabus"
           >
             <View style={styles.optionHeader}>
-              <Ionicons name="sparkles" size={20} color={colors.accent} />
+              <Ionicons name="document-text-outline" size={20} color={colors.accent} />
               <Text style={[styles.optionTitle, { color: colors.text }]}>
-                1. Import a syllabus
+                Import a syllabus
               </Text>
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
-              Pick a syllabus PDF, photo, or paste text. Gemma 4 automatically detects subjects, units, and topics.
+              Pick a syllabus PDF, photo, or paste text. AI detects subjects, units, and topics.
             </Text>
           </TouchableOpacity>
 
@@ -138,7 +138,7 @@ export default function HomeScreen() {
             <View style={styles.optionHeader}>
               <Ionicons name="add-circle-outline" size={20} color={colors.accent} />
               <Text style={[styles.optionTitle, { color: colors.text }]}>
-                2. Add subject manually
+                Add subject manually
               </Text>
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
@@ -156,7 +156,7 @@ export default function HomeScreen() {
               <Text style={[styles.optionTitle, { color: colors.text }]}>Open shared subject</Text>
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>
-              Got a .pyqed.json from a friend? Open it here. No API key needed.
+              Got a .pyqed.json file? Open it here. No API key needed.
             </Text>
           </TouchableOpacity>
         </View>

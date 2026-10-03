@@ -1,7 +1,7 @@
 /**
  * Syllabus Import orchestrator (AGENTS.md §8.1).
  * Supports PDF (via PdfWorker), photos, or pasted text.
- * ≤ 6 pages: single Gemma call.
+ * ≤ 6 pages: single AI call.
  * > 6 pages: per-page sequential calls + merge by subject name.
  */
 
@@ -163,7 +163,7 @@ export async function importSyllabus(
     };
   }
 
-  // --- Sub-branch A: ≤ 6 pages (Single Gemma call) ---
+  // --- Sub-branch A: ≤ 6 pages (Single AI call) ---
   if (pages.length <= 6) {
     onProgress?.({
       stage: 'analyzing',

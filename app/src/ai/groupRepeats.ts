@@ -1,7 +1,7 @@
 /**
  * Repeat-group orchestrator (AGENTS.md §8.4).
  * Runs after labelling. For each topic that received new questions (and has
- * ≥ 2 questions), asks Gemma 4 which questions are essentially the same.
+ * ≥ 2 questions), asks the AI which questions are essentially the same.
  * Code assigns repeatGroupId; times-asked is computed in ranking.ts.
  */
 
