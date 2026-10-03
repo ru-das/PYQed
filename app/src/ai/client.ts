@@ -59,6 +59,7 @@ export function extractJSON(rawText: string): string | null {
 function toFriendlyError(
   status: number | null,
   rawMessage: string,
+  elapsedMs = 0,
 ): { error: string; friendlyError: string } {
   if (status === 401 || status === 403) {
     return {
@@ -81,6 +82,15 @@ function toFriendlyError(
     };
   }
   if (status === null || rawMessage.includes('Network') || rawMessage.includes('Failed to fetch')) {
+    // A fetch that dies after a long wait was cut off mid-request, not offline
+    if (elapsedMs > 5000) {
+      return {
+        error: `Connection dropped after ${Math.round(elapsedMs / 1000)}s: ${rawMessage}`,
+        friendlyError: `The connection dropped while Gemma was reading (after ${Math.round(
+          elapsedMs / 1000,
+        )}s). Try again.`,
+      };
+    }
     return {
       error: `Network error: ${rawMessage}`,
       friendlyError: 'No internet. Your subjects and practice still work offline.',
@@ -308,7 +318,11 @@ export async function generateJSON<T = unknown>(
 
   // Check HTTP errors
   if (res.error && !res.text) {
-    const friendly = toFriendlyError(res.status || null, res.error);
+    const friendly = toFriendlyError(
+      res.status || null,
+      res.error,
+      Date.now() - startTime,
+    );
     return {
       ok: false,
       error: friendly.error,

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -74,6 +74,19 @@ export default function SyllabusImportScreen() {
     message: 'Starting syllabus import...',
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null); // raw error, for debugging
+  // Elapsed seconds for the current AI call; restarts whenever progress moves on
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (step !== 'processing' || errorMessage) return;
+    const start = Date.now();
+    setElapsedSec(0);
+    const tick = setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - start) / 1000)),
+      1000,
+    );
+    return () => clearInterval(tick);
+  }, [step, errorMessage, progress.stage, progress.current]);
 
   // Review state
   const [subjects, setSubjects] = useState<EditableSubject[]>([]);
@@ -103,6 +116,7 @@ export default function SyllabusImportScreen() {
   const runImport = async (source: SyllabusSource) => {
     setStep('processing');
     setErrorMessage(null);
+    setErrorDetail(null);
 
     const apiSettings = await getApiSettings();
 
@@ -118,6 +132,7 @@ export default function SyllabusImportScreen() {
 
       if (!result.ok) {
         setErrorMessage(result.friendlyError || result.error);
+        setErrorDetail(result.error);
         return;
       }
 
@@ -627,6 +642,18 @@ export default function SyllabusImportScreen() {
               >
                 {errorMessage}
               </Text>
+              {errorDetail && errorDetail !== errorMessage && (
+                <Text
+                  style={{
+                    color: colors.textSecondary,
+                    fontSize: 12,
+                    textAlign: 'center',
+                    marginTop: Spacing.sm,
+                  }}
+                >
+                  {errorDetail}
+                </Text>
+              )}
               <View style={styles.errorBtnRow}>
                 <TouchableOpacity
                   style={[
@@ -667,6 +694,9 @@ export default function SyllabusImportScreen() {
                 ]}
               >
                 {progress.message}
+              </Text>
+              <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
+                ⏱ {elapsedSec}s elapsed (a call can take 1–2 min on the free tier)
               </Text>
               {progress.total > 1 && (
                 <Text

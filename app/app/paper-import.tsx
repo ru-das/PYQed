@@ -93,6 +93,18 @@ export default function PaperImportScreen() {
     message: 'Starting paper import...',
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Elapsed seconds for the current AI call; restarts whenever progress moves on
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (step !== 'processing' || errorMessage) return;
+    const start = Date.now();
+    setElapsedSec(0);
+    const tick = setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - start) / 1000)),
+      1000,
+    );
+    return () => clearInterval(tick);
+  }, [step, errorMessage, progress.stage, progress.current]);
   const [partialPages, setPartialPages] = useState<PageExtraction[]>([]);
   const [resumePage, setResumePage] = useState<number>(0);
 
@@ -758,6 +770,9 @@ export default function PaperImportScreen() {
                 ]}
               >
                 {progress.message}
+              </Text>
+              <Text style={[styles.progressCount, { color: colors.textSecondary }]}>
+                ⏱ {elapsedSec}s elapsed (a call can take 1–2 min on the free tier)
               </Text>
               {progress.total > 1 && (
                 <Text
