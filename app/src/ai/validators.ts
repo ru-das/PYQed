@@ -282,10 +282,62 @@ export function validateSyllabusStructure(
   };
 }
 
+// --- §8.3 Topic Labels Types & Validator ---
+
+export type RawTopicLabel = {
+  q: string; // question ID
+  topic: string | null; // topic ID or null
+  confidence: 'high' | 'low';
+};
+
+export type TopicLabelsResponse = {
+  labels: RawTopicLabel[];
+};
+
+export function validateTopicLabels(
+  data: unknown,
+  validQuestionIds?: Set<string>,
+  validTopicIds?: Set<string>,
+): ValidationResult<TopicLabelsResponse> {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'Response root must be a JSON object' };
+  }
+  const root = data as Record<string, unknown>;
+  if (!Array.isArray(root.labels)) {
+    return { ok: false, error: 'Response must contain a "labels" array' };
+  }
+
+  const labels: RawTopicLabel[] = [];
+  for (let i = 0; i < root.labels.length; i++) {
+    const item = root.labels[i];
+    if (!item || typeof item !== 'object') continue;
+    const l = item as Record<string, unknown>;
+    const q = typeof l.q === 'string' ? l.q.trim() : '';
+    if (!q) continue;
+    if (validQuestionIds && !validQuestionIds.has(q)) continue;
+
+    let topic: string | null = null;
+    if (typeof l.topic === 'string' && l.topic.trim()) {
+      topic = l.topic.trim();
+      if (validTopicIds && !validTopicIds.has(topic)) {
+        topic = null;
+      }
+    }
+
+    const confidence: 'high' | 'low' =
+      l.confidence === 'low' ? 'low' : 'high';
+
+    labels.push({ q, topic, confidence });
+  }
+
+  return { ok: true, data: { labels } };
+}
+
 /** Registry of validators */
 export const validators: Record<string, (data: unknown) => ValidationResult<any>> = {
   pageQuestions: validatePageQuestions,
   syllabusStructure: validateSyllabusStructure,
+  topicLabels: (data) => validateTopicLabels(data),
   __test: validatePingTest,
 };
 

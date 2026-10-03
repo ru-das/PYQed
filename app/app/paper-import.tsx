@@ -44,6 +44,7 @@ import {
   Paper,
   newId,
 } from '../src/store/subjects';
+import { labelQuestions } from '../src/ai/labelQuestions';
 
 type EditableQuestion = {
   id: string;
@@ -75,7 +76,7 @@ export default function PaperImportScreen() {
   const [subject, setSubject] = useState<Subject | null>(null);
 
   // Flow states
-  const [step, setStep] = useState<'picker' | 'processing' | 'review'>('picker');
+  const [step, setStep] = useState<'picker' | 'processing' | 'review' | 'labelling'>('picker');
   const [source, setSource] = useState<PaperSource | null>(null);
   const [sourceName, setSourceName] = useState<string>('Exam Paper');
 
@@ -448,13 +449,53 @@ export default function PaperImportScreen() {
     );
 
     // 4. Update Subject in store
-    const updatedSubject: Subject = {
+    let updatedSubject: Subject = {
       ...subject,
       papers: [...subject.papers, newPaper],
       questions: [...subject.questions, ...domainQuestions],
     };
 
     await saveSubject(updatedSubject);
+
+    // 5. Trigger topic labelling with Gemma 4 if syllabus units exist
+    if (updatedSubject.units.length > 0) {
+      const apiSettings = await getApiSettings();
+      if (apiSettings.apiKey && apiSettings.apiKey.trim().length > 0) {
+        setStep('labelling');
+        setProgress({
+          stage: 'extracting',
+          current: 1,
+          total: 1,
+          message: 'Labelling questions with syllabus topics...',
+        });
+
+        try {
+          const newQuestionIds = domainQuestions.map((q) => q.id);
+          const labelledQuestions = await labelQuestions(
+            updatedSubject,
+            newQuestionIds,
+            apiSettings.provider,
+            apiSettings.apiKey,
+            apiSettings.modelId,
+            (p) =>
+              setProgress({
+                stage: 'extracting',
+                current: p.current,
+                total: p.total,
+                message: p.message,
+              }),
+          );
+          updatedSubject = {
+            ...updatedSubject,
+            questions: labelledQuestions,
+          };
+          await saveSubject(updatedSubject);
+        } catch (err) {
+          console.warn('Topic labelling failed:', err);
+          // Non-fatal: paper is already saved with unassigned questions
+        }
+      }
+    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert(
@@ -487,6 +528,8 @@ export default function PaperImportScreen() {
               ? 'Paper Review'
               : step === 'processing'
               ? 'Reading Paper'
+              : step === 'labelling'
+              ? 'Labelling Topics'
               : 'Add Past Papers',
         }}
       />
@@ -715,6 +758,38 @@ export default function PaperImportScreen() {
               </Text>
             </View>
           )}
+        </View>
+      )}
+
+      {/* --- Step: Labelling with Gemma 4 --- */}
+      {step === 'labelling' && (
+        <View style={styles.centerContent}>
+          <View style={styles.progressContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text
+              style={[
+                styles.progressStage,
+                { color: colors.text, marginTop: Spacing.md },
+              ]}
+            >
+              {progress.message || 'Labelling topics with Gemma 4...'}
+            </Text>
+            {progress.total > 1 && (
+              <Text
+                style={[styles.progressCount, { color: colors.textSecondary }]}
+              >
+                Chunk {progress.current} of {progress.total}
+              </Text>
+            )}
+            <Text
+              style={[
+                styles.privacySubtext,
+                { color: colors.textSecondary, marginTop: Spacing.lg },
+              ]}
+            >
+              Matching questions to syllabus topics. Questions without a clear match will appear under Unassigned.
+            </Text>
+          </View>
         </View>
       )}
 

@@ -90,3 +90,26 @@ Output MUST be valid JSON adhering strictly to this schema:
   ]
 }`;
 }
+
+/**
+ * §8.3 — Questions → topic labels prompt.
+ * Input: subject topics as compact list + questions as Q-id | text.
+ * Output: labels with topic IDs and confidence.
+ */
+export function topicLabelsPrompt(topics: string, questions: string): string {
+  return `You are labelling university exam questions with syllabus topics.
+
+Topics (format: TopicID | UnitName | TopicName):
+${topics}
+
+Questions (format: QuestionID | QuestionText):
+${questions}
+
+Rules:
+- For each question, pick the single best matching topic ID. If no topic fits well, use null.
+- "confidence": "high" if the match is clear and unambiguous, "low" if the question could belong to another topic too.
+- Use ONLY the topic IDs listed above. Do NOT invent new ones.
+
+Return ONLY this JSON (no extra text):
+{"labels":[{"q":"<question id>","topic":"<topic id or null>","confidence":"high or low"}]}`;
+}
