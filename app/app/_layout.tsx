@@ -25,6 +25,7 @@ export default function RootLayout() {
         <Stack.Screen name="subject/[id]" options={{ title: 'Subject' }} />
         <Stack.Screen name="subject/edit" options={{ title: 'Subject' }} />
         <Stack.Screen name="subject/topic" options={{ title: 'Topic Questions' }} />
+        <Stack.Screen name="subject/practice" options={{ title: 'Practice' }} />
         <Stack.Screen name="syllabus-import" options={{ title: 'Import Syllabus' }} />
         <Stack.Screen name="paper-import" options={{ title: 'Add Papers' }} />
       </Stack>

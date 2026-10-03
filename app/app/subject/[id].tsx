@@ -33,6 +33,7 @@ import {
   askedYears,
   collapseRepeats,
 } from '../../src/logic/ranking';
+import { topicProgress } from '../../src/logic/practice';
 
 const TABS = ['Topics', 'All questions', 'Papers'] as const;
 
@@ -362,6 +363,12 @@ export default function SubjectScreen() {
                                         {tQuestions.length} q
                                         {paperCount > 0
                                           ? ` · avg ${avgMarks.toFixed(1)} m/paper`
+                                          : ''}
+                                        {tQuestions.length > 0
+                                          ? ` · ${Math.round(
+                                              (topicProgress(t.id, subject.questions, subject.practice).done /
+                                                tQuestions.length) * 100,
+                                            )}% practised`
                                           : ''}
                                       </Text>
                                     </View>
@@ -1022,12 +1029,37 @@ export default function SubjectScreen() {
           </View>
         )}
       </ScrollView>
+
+      {subject.questions.length > 0 && (
+        <TouchableOpacity
+          style={[styles.fab, { backgroundColor: colors.accent }]}
+          onPress={() =>
+            router.push({ pathname: '/subject/practice', params: { subjectId: subject.id } })
+          }
+          accessibilityLabel="Start practice"
+        >
+          <Ionicons name="flash" size={20} color={colors.accentText} />
+          <Text style={{ color: colors.accentText, fontWeight: '700' }}>Practice</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  fab: {
+    position: 'absolute',
+    right: Spacing.md,
+    bottom: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    minHeight: 48,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: 24,
+    elevation: 4,
+  },
   scrollContent: {
     padding: Spacing.md,
     gap: Spacing.sm,
