@@ -3,6 +3,7 @@
  */
 
 import { AI_IDLE_TIMEOUT_MS, AI_TIMEOUT_MS, OPENROUTER_BASE_URL, Provider } from '../config';
+import { validators, ValidationResult } from './validators';
 
 // A retry after an unreadable answer gets less time, so one bad page can't block the import for 10 minutes
 const RETRY_TIMEOUT_MS = 120_000;
@@ -28,7 +29,6 @@ export function finishError(reason?: string | null): string | null {
 export function devLog(...args: unknown[]) {
   if (typeof __DEV__ !== 'undefined' && __DEV__) console.log(...args);
 }
-import { validators, ValidationResult } from './validators';
 
 /** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
 export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
@@ -262,6 +262,29 @@ export function googleGenerationConfig(temperature: number, withJsonMime: boolea
   return cfg;
 }
 
+/** URL and JSON body of a Google AI Studio request, shared by the plain and the streamed call. */
+function googleRequest(
+  modelId: string,
+  method: 'generateContent' | 'streamGenerateContent?alt=sse',
+  prompt: string,
+  images: string[],
+  temperature: number,
+  withJsonMime: boolean,
+) {
+  const parts: Array<{ text: string } | { inline_data: { mime_type: string; data: string } }> = [{ text: prompt }];
+  for (const img of images) {
+    // Strip data:image/...;base64, prefix if present
+    parts.push({ inline_data: { mime_type: 'image/jpeg', data: img.replace(/^data:image\/[a-zA-Z]+;base64,/, '') } });
+  }
+  return {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:${method}`,
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      generationConfig: googleGenerationConfig(temperature, withJsonMime),
+    }),
+  };
+}
+
 /**
  * Execute request to Google AI Studio
  */
@@ -274,27 +297,7 @@ async function callGoogleAIStudio(
   signal: AbortSignal,
   temperature: number = 0,
 ): Promise<CallResult> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    modelId,
-  )}:generateContent`;
-
-  const parts: Array<
-    | { text: string }
-    | { inline_data: { mime_type: string; data: string } }
-  > = [{ text: prompt }];
-
-  for (const imgBase64 of images) {
-    // Strip data:image/...;base64, prefix if present
-    const cleanBase64 = imgBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
-    parts.push({
-      inline_data: {
-        mime_type: 'image/jpeg',
-        data: cleanBase64,
-      },
-    });
-  }
-
-  const generationConfig = googleGenerationConfig(temperature, withJsonMime);
+  const { url, body } = googleRequest(modelId, 'generateContent', prompt, images, temperature, withJsonMime);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -302,10 +305,7 @@ async function callGoogleAIStudio(
       'Content-Type': 'application/json',
       'x-goog-api-key': apiKey,
     },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig,
-    }),
+    body,
     signal,
   });
 
@@ -378,24 +378,12 @@ async function callGoogleAIStudioStream(
   // Imported lazily so this module stays free of native modules (it is unit-tested in Node).
   // expo/fetch (unlike RN's built-in fetch) can read the response body as a stream.
   const { fetch: streamFetch } = await import('expo/fetch');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    modelId,
-  )}:streamGenerateContent?alt=sse`;
-
-  const parts: Array<{ text: string } | { inline_data: { mime_type: string; data: string } }> = [
-    { text: prompt },
-  ];
-  for (const img of images) {
-    parts.push({
-      inline_data: { mime_type: 'image/jpeg', data: img.replace(/^data:image\/[a-zA-Z]+;base64,/, '') },
-    });
-  }
-  const generationConfig = googleGenerationConfig(temperature, withJsonMime);
+  const { url, body } = googleRequest(modelId, 'streamGenerateContent?alt=sse', prompt, images, temperature, withJsonMime);
 
   const response = await streamFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig }),
+    body,
     signal,
   });
   const status = response.status;
