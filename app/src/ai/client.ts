@@ -10,6 +10,8 @@ const RETRY_TIMEOUT_MS = 120_000;
 // stop the stream and let generateJSON ask again. ponytail: fixed cap, tune after seeing real thought lengths.
 const MAX_THOUGHT_CHARS = 40_000;
 const STUCK_THINKING = 'Model got stuck thinking';
+/** The model hit its output-token cap (thinking tokens count too) before it finished the JSON. */
+export const ANSWER_CUT_OFF = 'Answer was cut off (output token limit)';
 import { validators, ValidationResult } from './validators';
 
 /** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
@@ -74,30 +76,59 @@ export type GenerateJSONResult<T = unknown> =
       rawText?: string;
       /** True for problems retrying the next page won't fix (bad key, rate limit, offline, timeout). */
       fatal: boolean;
+      /** True when the model ran out of output tokens: the caller can ask for less per call. */
+      cutOff?: boolean;
       timeMs: number;
     };
 
 /**
- * Strips thinking blocks and extracts the outermost JSON object string.
+ * Strips thinking blocks and extracts the JSON object from the answer. Models sometimes write prose,
+ * an outline or a draft around it, so this scans for balanced top-level {...} blocks (braces inside
+ * strings don't count) and returns the largest one that parses.
  */
 export function extractJSON(rawText: string): string | null {
   if (!rawText) return null;
 
   // Remove <think>...</think> tags and markdown thinking blocks
-  let cleaned = rawText
+  const cleaned = rawText
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/```thinking[\s\S]*?```/gi, '')
     .trim();
 
-  // Find the first { and the last }
+  let best: string | null = null;
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (depth === 0 && ch !== '{') continue; // prose between objects: quotes there are not JSON strings
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}' && --depth === 0) {
+      const candidate = cleaned.substring(start, i + 1);
+      if (candidate.length > (best?.length ?? 0)) {
+        try {
+          JSON.parse(candidate);
+          best = candidate;
+        } catch {
+          // not valid JSON (e.g. a "{...}" in prose): keep looking
+        }
+      }
+    }
+  }
+  if (best) return best;
+
+  // Nothing parsed: fall back to first { .. last } so the parse error shows the real problem
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    return null;
-  }
-
-  return cleaned.substring(firstBrace, lastBrace + 1);
+  return firstBrace === -1 || lastBrace <= firstBrace ? null : cleaned.substring(firstBrace, lastBrace + 1);
 }
 
 /**
@@ -239,6 +270,7 @@ async function callGoogleAIStudio(
     .map((part: any) => part.text || '')
     .join('');
 
+  if (candidate.finishReason === 'MAX_TOKENS') return { text: '', status, error: ANSWER_CUT_OFF };
   return { text, status };
 }
 
@@ -316,6 +348,7 @@ async function callGoogleAIStudioStream(
   let buffer = '';
   let answer = '';
   let thoughts = '';
+  let cutOff = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -325,6 +358,7 @@ async function callGoogleAIStudioStream(
     const { events, rest } = parseSSE(buffer);
     buffer = rest;
     for (const ev of events) {
+      if (ev?.candidates?.[0]?.finishReason === 'MAX_TOKENS') cutOff = true;
       for (const part of ev?.candidates?.[0]?.content?.parts ?? []) {
         if (!part.text) continue;
         if (part.thought) {
@@ -342,6 +376,7 @@ async function callGoogleAIStudioStream(
     }
   }
 
+  if (cutOff) return { text: '', status, error: ANSWER_CUT_OFF };
   if (!answer) return { text: '', status, error: 'Empty response candidate from model' };
   return { text: answer, status };
 }
@@ -418,6 +453,7 @@ async function callOpenAICompatible(
     return { text: '', status, error: errorMsg };
   }
 
+  if (json?.choices?.[0]?.finish_reason === 'length') return { text: '', status, error: ANSWER_CUT_OFF };
   const text = json?.choices?.[0]?.message?.content || '';
   return { text, status };
 }
@@ -555,6 +591,18 @@ export async function generateJSON<T = unknown>(
     if (isJsonModeError) {
       res = await runCall(params.prompt, false);
     }
+  }
+
+  // A cut-off answer is final: a retry would hit the same token cap
+  if (res.error === ANSWER_CUT_OFF) {
+    return {
+      ok: false,
+      error: res.error,
+      friendlyError: 'The answer was too long and got cut off.',
+      fatal: false,
+      cutOff: true,
+      timeMs: Date.now() - startTime,
+    };
   }
 
   // Check HTTP errors

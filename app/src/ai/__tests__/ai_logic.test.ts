@@ -8,8 +8,29 @@ import {
   validatePageQuestions,
   validateSyllabusStructure,
 } from '../validators';
-import { pageToQuestionsPrompt, syllabusToStructurePrompt } from '../prompts';
+import { pageToQuestionsPrompt, repeatGroupsPrompt, syllabusToStructurePrompt, topicLabelsPrompt } from '../prompts';
 import { lastSyllabusPosition, mergeSyllabusSubjects } from '../../logic/syllabus';
+
+describe('extractJSON around extra text', () => {
+  it('ignores an outline before and fix lines after the JSON', () => {
+    const raw = 'subjects[0] "DS"\n{"a": 1}\nfix: subjects[0].name = "X"';
+    assert.strictEqual(extractJSON(raw), '{"a": 1}');
+  });
+
+  it('picks the full object over a smaller draft or snippet', () => {
+    const raw = '{"a": 1}\nfinal:\n{"a": 1, "b": [2, 3]}\n{"c": 1}';
+    assert.strictEqual(extractJSON(raw), '{"a": 1, "b": [2, 3]}');
+  });
+
+  it('does not count braces inside strings', () => {
+    assert.strictEqual(extractJSON('ok {"t": "a } b { c"} done'), '{"t": "a } b { c"}');
+  });
+
+  it('falls back to first/last brace when nothing parses', () => {
+    assert.strictEqual(extractJSON('{"a": '), null);
+    assert.strictEqual(extractJSON('{"a": 1,}'), '{"a": 1,}');
+  });
+});
 
 describe('extractJSON', () => {
   it('extracts plain JSON object', () => {
@@ -140,6 +161,27 @@ describe('pageToQuestionsPrompt', () => {
     const prompt = pageToQuestionsPrompt(1, 1);
     assert.ok(prompt.includes('page 1 of 1'));
     assert.ok(!prompt.includes('The previous page ended with'));
+  });
+});
+
+describe('prompt wording', () => {
+  it('every prompt has tie-breaker rules and never asks for "no planning" or a thinking format', () => {
+    const all = [
+      pageToQuestionsPrompt(1, 1),
+      syllabusToStructurePrompt(),
+      topicLabelsPrompt('T1 | U | t', 'Q1 | q'),
+      repeatGroupsPrompt('Q1 | 2020 | q'),
+    ];
+    for (const p of all) {
+      assert.ok(p.includes('When unsure'));
+      assert.ok(!p.includes('no planning'));
+      assert.ok(!p.includes('How to think'));
+    }
+  });
+
+  it('syllabus example shows several subjects', () => {
+    const p = syllabusToStructurePrompt();
+    assert.ok(p.includes('"Engineering Physics"') && p.includes('"Data Structures Lab"'));
   });
 });
 

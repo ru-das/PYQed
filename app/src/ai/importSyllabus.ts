@@ -199,21 +199,24 @@ export async function importSyllabus(
   // seen in one piece. A short syllabus is a single chunk. For longer ones the last subject/unit of
   // the previous chunk is passed on, because the next chunk may start in the middle of it.
   const batches: RawSyllabusSubject[][] = [];
-  const totalChunks = Math.ceil(pages.length / CHUNK_PAGES);
+  let size = CHUNK_PAGES; // halved whenever the model runs out of output tokens, kept smaller after that
   let position: SyllabusPosition | null = null;
   let lastError: { error: string; friendlyError: string } | undefined;
+  let part = 0;
 
-  for (let c = 0; c < totalChunks; c++) {
-    const chunk = pages.slice(c * CHUNK_PAGES, (c + 1) * CHUNK_PAGES);
-    const nums = pageNums.slice(c * CHUNK_PAGES, (c + 1) * CHUNK_PAGES);
+  for (let start = 0; start < pages.length; ) {
+    const chunk = pages.slice(start, start + size);
+    const nums = pageNums.slice(start, start + size);
     const range = nums.length > 1 ? `pages ${nums[0]}–${nums[nums.length - 1]}` : `page ${nums[0]}`;
+    const totalChunks = part + Math.ceil((pages.length - start) / size);
+    part++;
 
-    const handlers = streamHandlers(onProgress, c + 1, totalChunks);
+    const handlers = streamHandlers(onProgress, part, totalChunks);
     onProgress?.({
       stage: 'analyzing',
-      current: c + 1,
+      current: part,
       total: totalChunks,
-      message: totalChunks > 1 ? `Analyzing ${range} (part ${c + 1} of ${totalChunks})...` : `Analyzing syllabus (${range})...`,
+      message: totalChunks > 1 ? `Analyzing ${range} (part ${part} of ${totalChunks})...` : `Analyzing syllabus (${range})...`,
     });
 
     const prompt: string =
@@ -233,6 +236,14 @@ export async function importSyllabus(
     if (res.ok) {
       batches.push(res.data.subjects);
       position = lastSyllabusPosition(res.data.subjects) ?? position;
+      start += chunk.length;
+      continue;
+    }
+
+    // Answer hit the output-token cap: the same pages in smaller pieces, no notice needed
+    if (res.cutOff && chunk.length > 1) {
+      size = Math.ceil(chunk.length / 2);
+      part--;
       continue;
     }
 
@@ -241,9 +252,11 @@ export async function importSyllabus(
     notices.push(`Couldn't read ${range} (${res.friendlyError}) Subjects from there may be missing.`);
     if (res.fatal) {
       // Bad key, rate limit or offline: the remaining chunks would fail the same way
-      if (c + 1 < totalChunks) notices.push(`Stopped before ${totalChunks - c - 1} more part(s).`);
+      const left = Math.ceil((pages.length - start - chunk.length) / size);
+      if (left > 0) notices.push(`Stopped before ${left} more part(s).`);
       break;
     }
+    start += chunk.length;
   }
 
   if (batches.length === 0) {
@@ -259,8 +272,8 @@ export async function importSyllabus(
   if (batches.length > 1) {
     onProgress?.({
       stage: 'merging',
-      current: totalChunks,
-      total: totalChunks,
+      current: part,
+      total: part,
       message: 'Merging subjects and units...',
     });
   }

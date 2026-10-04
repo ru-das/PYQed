@@ -20,8 +20,9 @@ export function pageToQuestionsPrompt(
     : '';
 
   return `Read ${pageLabel} of a university exam question paper (PYQ) and list every question on it as JSON.
-Answer directly: start writing the JSON right away, with no planning, drafting or final check. Decide each field once as you read; the student reviews everything afterwards.
 ${continuity}
+Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
+
 Rules:
 - Copy each question's text EXACTLY as printed, including formulas (plain text or simple LaTeX). Do NOT solve, answer, explain or rephrase. Do NOT fix typos, spelling, grammar or capitalisation: keep every mistake as printed.
 - One entry per answerable part. A question with parts (a), (b), (i), (ii) becomes one entry per part, with any shared lead-in (e.g. "Given the graph G below:") copied exactly at the start of each part's text. No separate entry for a parent whose parts are answered separately.
@@ -32,6 +33,12 @@ Rules:
 - "continues_previous": true if the page starts mid-sentence or mid-question.
 - Skip generic instructions, headers, footers, university names and page numbers.
 - If extracted text is also given, the image is the source of truth; use the text only to help read hard characters.
+
+When unsure:
+- Marks unclear -> null. Unclear whether a line is a part of the previous question or a question of its own -> its own entry.
+- A word you cannot read -> [?] in its place. Never guess it.
+- Answer choices belong in "text", after the question, as printed.
+- A page with no questions (cover, instructions, blank) -> "questions": [].
 
 Return ONLY JSON in this shape:
 {
@@ -70,9 +77,10 @@ export function syllabusToStructurePrompt(previous?: SyllabusPosition | null): s
       }${previous.unit ? `, and unit "${previous.unit}" if it continues that unit` : ''}. Start a new subject only where a new subject heading is printed.\n`
     : '';
   return `Read this university syllabus and list its subjects, units and topics as JSON.
-Answer directly: start writing the JSON right away, with no planning, drafting or final check. Decide each item once as you read; the student reviews and edits everything afterwards.
 The document may contain several subjects, and a subject may start or end in the middle of a page: extract all of them.
 ${continuation}
+Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
+
 Rules:
 - Copy subject, unit and topic names and topic details EXACTLY as printed. Do NOT fix typos, spelling, grammar, spacing or capitalisation: keep every mistake as printed. Only join a word split across a line break. Never summarise, shorten or reword.
 - Do NOT invent subjects, units or topics.
@@ -82,7 +90,14 @@ Rules:
 - "details" = the text printed for that topic, copied exactly with no length limit; "" if none.
 - "code" = the course code if printed (e.g. "CS201"), else null.
 
-Return ONLY JSON in this shape (two subjects shown; output as many as the document has):
+When unsure:
+- Can't tell if a line is a unit or a topic -> make it a topic of the current unit.
+- Can't tell if a heading starts a new subject -> it does only if a course title or code is printed with it.
+- Topics with no unit heading above them -> one unit named "Unit 1".
+- A word you cannot read -> [?] in its place. Never guess it. A missing value -> null (code) or "" (details).
+- Pick the first option that fits these rules; never compare alternatives. The student edits afterwards.
+
+Return ONLY JSON, written without indentation, in this shape (three subjects shown, each a different shape; output as many as the document has):
 {
   "subjects": [
     {
@@ -92,7 +107,14 @@ Return ONLY JSON in this shape (two subjects shown; output as many as the docume
         {
           "name": "Unit 1: Arrays and Linked Lists",
           "topics": [
+            { "name": "Arrays", "details": "" },
             { "name": "Singly Linked List", "details": "Creation, insertion, deletion, traversal" }
+          ]
+        },
+        {
+          "name": "Unit 2: Trees",
+          "topics": [
+            { "name": "Binary Trees", "details": "Traversals, BST operations" }
           ]
         }
       ]
@@ -108,6 +130,18 @@ Return ONLY JSON in this shape (two subjects shown; output as many as the docume
           ]
         }
       ]
+    },
+    {
+      "name": "Data Structures Lab",
+      "code": "CS291",
+      "units": [
+        {
+          "name": "Unit 1",
+          "topics": [
+            { "name": "Implement a stack using an array", "details": "" }
+          ]
+        }
+      ]
     }
   ]
 }`;
@@ -120,7 +154,7 @@ Return ONLY JSON in this shape (two subjects shown; output as many as the docume
  */
 export function topicLabelsPrompt(topics: string, questions: string): string {
   return `Label each university exam question with the one syllabus topic it belongs to.
-Answer directly: start writing the JSON right away, with no planning or final check. Decide each question once; the student can move questions later.
+Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
 
 Topics (format: TopicID | UnitName | TopicName):
 ${topics}
@@ -134,6 +168,10 @@ Rules:
 - Copy IDs exactly as written above (e.g. "Q1", "T3"). Use ONLY the topic IDs listed; never invent one.
 - The topic and question texts are copied from the documents as-is, typos included: do not correct or rewrite them. You only output IDs.
 
+When unsure:
+- Torn between topics -> the topic the question's main task is about, with "low".
+- Nothing fits -> null.
+
 Return ONLY this JSON:
 {"labels":[{"q":"<question id>","topic":"<topic id or null>","confidence":"high or low"}]}`;
 }
@@ -145,7 +183,7 @@ Return ONLY this JSON:
  */
 export function repeatGroupsPrompt(questions: string): string {
   return `Find repeated questions in university exam papers. The questions are listed under their syllabus topic.
-Answer directly: start writing the JSON right away, with no planning or final check. Decide each pair once.
+Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
 
 Questions (format: QuestionID | Year | QuestionText):
 ${questions}
@@ -156,6 +194,10 @@ Rules:
 - Only group questions under the same topic heading; never mix topics in one group.
 - Each ID in at most one group; every group has at least 2 IDs. Leave out questions with no repeat. Use ONLY the IDs listed.
 - Do not correct or rewrite the question texts. You only output IDs.
+
+When unsure:
+- Group only if one prepared answer would answer both questions. Not sure -> do not group.
+- A question that fits two groups -> the closer one.
 
 Return ONLY this JSON:
 {"groups":[["<id>","<id>"],["<id>","<id>","<id>"]]}`;
