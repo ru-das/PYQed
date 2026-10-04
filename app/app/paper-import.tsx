@@ -456,8 +456,7 @@ export default function PaperImportScreen() {
       return;
     }
 
-    const parsedYear = paperYear.trim() ? parseInt(paperYear.trim(), 10) : null;
-    const finalYear = isNaN(parsedYear as any) ? null : parsedYear;
+    const finalYear = parseInt(paperYear, 10) || null;
 
     // The same paper twice would double every "Asked n×" count, so ask first
     const duplicate =

@@ -89,8 +89,7 @@ export default function PaperScreen() {
     ]);
 
   const save = async () => {
-    const y = parseInt(year.trim(), 10);
-    const finalYear = Number.isFinite(y) ? y : null;
+    const finalYear = parseInt(year, 10) || null;
     const kept = new Set(qs.map((q) => q.id));
     const removed = subject.questions.filter((q) => q.paperId === paper.id && !kept.has(q.id)).map((q) => q.id);
     const practice = { ...subject.practice };
