@@ -37,7 +37,7 @@ import {
 } from '../src/logic/paper';
 import { deriveQuestionType, checkNeedsReview, RawExtractedQuestion } from '../src/ai/validators';
 import { showProgress, finish } from '../src/notify';
-import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
+import { usePdfWorker } from '../src/pdf/usePdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
 import { ImportProgress, PAPER_PHRASES, LABEL_PHRASES, paperSteps, labelSteps } from '../src/components/ImportProgress';
 import {
@@ -90,14 +90,7 @@ export default function PaperImportScreen() {
   const { subjectId } = useLocalSearchParams<{ subjectId?: string }>();
 
   const navigation = useNavigation();
-  const pdfWorkerRef = useRef<PdfWorkerHandle>(null);
-  // The hidden PDF reader is only mounted once a PDF is picked (photos and pasted text never need it)
-  const [workerOn, setWorkerOn] = useState(false);
-  const ensureWorker = async () => {
-    setWorkerOn(true);
-    for (let i = 0; i < 100 && !pdfWorkerRef.current; i++) await new Promise((r) => setTimeout(r, 50));
-    return pdfWorkerRef.current ?? undefined;
-  };
+  const { ensureWorker, worker } = usePdfWorker();
   const abortRef = useRef(new AbortController()); // aborted when the user leaves or presses Stop, so no more quota is spent
   const savedRef = useRef(false); // set once the paper is saved, so leaving needs no confirm
   const [saving, setSaving] = useState(false);
@@ -649,7 +642,7 @@ export default function PaperImportScreen() {
       />
 
       {/* Hidden PDF Worker */}
-      {workerOn && <PdfWorker ref={pdfWorkerRef} />}
+      {worker}
 
       {/* API Key Modal Sheet */}
       <ApiKeySheet

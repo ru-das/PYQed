@@ -25,7 +25,7 @@ import {
   cancelSyllabusJob,
 } from '../src/ai/syllabusJob';
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
-import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
+import { usePdfWorker } from '../src/pdf/usePdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
 import { Button, Footer } from '../src/components/ui';
 import { ImportProgress, SYLLABUS_PHRASES, syllabusSteps } from '../src/components/ImportProgress';
@@ -56,14 +56,7 @@ export default function SyllabusImportScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const navigation = useNavigation();
-  const pdfWorkerRef = useRef<PdfWorkerHandle>(null);
-  // The hidden PDF reader is only mounted once a PDF is picked (photos and pasted text never need it)
-  const [workerOn, setWorkerOn] = useState(false);
-  const ensureWorker = async () => {
-    setWorkerOn(true);
-    for (let i = 0; i < 100 && !pdfWorkerRef.current; i++) await new Promise((r) => setTimeout(r, 50));
-    return pdfWorkerRef.current ?? undefined;
-  };
+  const { ensureWorker, worker } = usePdfWorker();
   const savedRef = useRef(false); // set once subjects are created, so leaving needs no confirm
 
   // Flow states
@@ -356,7 +349,7 @@ export default function SyllabusImportScreen() {
       />
 
       {/* Hidden PDF Worker */}
-      {workerOn && <PdfWorker ref={pdfWorkerRef} />}
+      {worker}
 
       {/* API Key Modal Sheet */}
       <ApiKeySheet
