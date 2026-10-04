@@ -100,7 +100,7 @@ function streamHandlers(
   current: number,
   total: number,
 ) {
-  const message = total > 1 ? `Analyzing page ${current} of ${total}...` : 'Analyzing syllabus...';
+  const message = total > 1 ? `Reading batch ${current} of ${total}...` : 'Analyzing syllabus...';
   return {
     onStream: streamProgress(
       (live) => onProgress?.({ stage: 'analyzing', current, total, message, live }),
@@ -248,7 +248,7 @@ export async function importSyllabus(
       stage: 'analyzing',
       current: part,
       total: totalChunks,
-      message: totalChunks > 1 ? `Analyzing ${range} (part ${part} of ${totalChunks})...` : `Analyzing syllabus (${range})...`,
+      message: totalChunks > 1 ? `Reading batch ${part} of ${totalChunks} (${range})...` : `Analyzing syllabus (${range})...`,
     });
 
     const pageList = chunk.map((_, idx) => `--- Page ${nums[idx]} is attached as an image ---`).join('\n');
@@ -285,7 +285,7 @@ export async function importSyllabus(
     if (res.fatal) {
       // Bad key, rate limit or offline: the remaining chunks would fail the same way
       const left = Math.ceil((pages.length - start - chunk.length) / size);
-      if (left > 0) notices.push(`Stopped before ${left} more part(s).`);
+      if (left > 0) notices.push(`Stopped before ${left} more batch(es).`);
       break;
     }
     start += chunk.length;
