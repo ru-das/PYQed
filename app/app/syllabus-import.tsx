@@ -385,12 +385,46 @@ export default function SyllabusImportScreen() {
         >
           <View style={styles.headerBlock}>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Pick your syllabus and PYQed will find the subjects, units and topics. You can edit everything before saving.
+              Pick your syllabus and PYQed will find the subjects, units and topics. Tip: photograph only the syllabus pages you need. You can edit everything before saving.
             </Text>
           </View>
 
           <View style={styles.cardsList}>
-            {/* Option 1: PDF */}
+            {/* Option 1: Photos (recommended) */}
+            <TouchableOpacity
+              style={[
+                styles.sourceCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={handlePickPhotos}
+              accessibilityLabel="Import from Photos"
+            >
+              <View
+                style={[
+                  styles.badgeIcon,
+                  { backgroundColor: colors.accent + '15' },
+                ]}
+              >
+                <Ionicons name="images-outline" size={24} color={colors.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>
+                  Photos of syllabus pages (Recommended)
+                </Text>
+                <Text
+                  style={[styles.cardDesc, { color: colors.textSecondary }]}
+                >
+                  Only the pages for your subjects. Faster and more accurate than a whole PDF.
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+
+            {/* Option 2: PDF */}
             <TouchableOpacity
               style={[
                 styles.sourceCard,
@@ -418,41 +452,7 @@ export default function SyllabusImportScreen() {
                 <Text
                   style={[styles.cardDesc, { color: colors.textSecondary }]}
                 >
-                  Text or scanned university syllabus document
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
-
-            {/* Option 2: Photos */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              onPress={handlePickPhotos}
-              accessibilityLabel="Import from Photos"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons name="images-outline" size={24} color={colors.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Photos or Scans
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  Select photos of printed syllabus pages
+                  Reads every page, so it's slower. Photos of just your pages work better.
                 </Text>
               </View>
               <Ionicons
