@@ -1,6 +1,7 @@
 /**
  * Small shared UI pieces, so the same idea looks the same on every screen:
- * Button, Chip, Segmented (tabs / sort), EmptyState, Sheet (slide-up panel) and Footer (sticky save bar).
+ * Button, Chip, Segmented (tabs / sort), EmptyState, SourceCard (import options), ErrorCard,
+ * Sheet (slide-up panel) and Footer (sticky save bar).
  * Use these instead of per-screen styles.
  */
 import React from 'react';
@@ -137,6 +138,59 @@ export function EmptyState({ icon, title, body, action }: {
   );
 }
 
+// ─── SourceCard ───
+
+/** A tappable option row: icon badge, title, description and a trailing arrow (the import pickers). */
+export function SourceCard({ icon, title, body, onPress, accessibilityLabel, trailing = 'chevron-forward' }: {
+  icon: IconName;
+  title: string;
+  body: string;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  /** Arrow icon on the right, e.g. chevron-down for a row that expands */
+  trailing?: IconName;
+}) {
+  const colors = useThemeColors();
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityLabel={accessibilityLabel ?? title}
+      style={[styles.sourceCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+    >
+      <View style={[styles.sourceBadge, { backgroundColor: colors.accent + '15' }]}>
+        <Ionicons name={icon} size={24} color={colors.accent} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '700' }}>{title}</Text>
+        <Text style={{ color: colors.textSecondary, fontSize: FontSize.caption, marginTop: 2, lineHeight: 18 }}>{body}</Text>
+      </View>
+      <Ionicons name={trailing} size={20} color={colors.textSecondary} />
+    </TouchableOpacity>
+  );
+}
+
+// ─── ErrorCard ───
+
+/** Red-bordered "something went wrong" card: icon, title, message, any extra lines (children), then the action buttons. */
+export function ErrorCard({ title, message, actions, children }: {
+  title: string;
+  message: string;
+  /** Buttons, shown side by side */
+  actions: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View style={[styles.errorCard, { backgroundColor: colors.card, borderColor: colors.red }]}>
+      <Ionicons name="alert-circle" size={44} color={colors.red} />
+      <Text style={{ color: colors.text, fontSize: FontSize.h2, fontWeight: '700', textAlign: 'center' }}>{title}</Text>
+      <Text style={{ color: colors.textSecondary, fontSize: FontSize.caption + 1, lineHeight: 20, textAlign: 'center' }}>{message}</Text>
+      {children}
+      <View style={styles.errorActions}>{actions}</View>
+    </View>
+  );
+}
+
 // ─── Sheet ───
 
 /** Slide-up panel with a dimmed backdrop (tap to close), a title row and a close button. */
@@ -217,6 +271,24 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.button - 3,
   },
   empty: { alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.xl * 1.5 },
+  sourceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    gap: Spacing.md,
+  },
+  sourceBadge: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  errorCard: {
+    width: '100%',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  errorActions: { flexDirection: 'row', gap: Spacing.sm, width: '100%', marginTop: Spacing.md },
   backdrop: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: {
     borderTopLeftRadius: BorderRadius.card + 4,

@@ -27,7 +27,7 @@ import {
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { usePdfWorker } from '../src/pdf/usePdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
-import { Button, Footer } from '../src/components/ui';
+import { Button, ErrorCard, Footer, SourceCard } from '../src/components/ui';
 import { ImportProgress, SYLLABUS_PHRASES, syllabusSteps } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
 import { UnitsEditor } from '../src/components/UnitsEditor';
@@ -375,115 +375,27 @@ export default function SyllabusImportScreen() {
           </View>
 
           <View style={styles.cardsList}>
-            {/* Option 1: Photos (recommended) */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
+            <SourceCard
+              icon="images-outline"
+              title="Photos of syllabus pages (Recommended)"
+              body="Only the pages for your subjects. Faster and more accurate than a whole PDF."
               onPress={handlePickPhotos}
               accessibilityLabel="Import from Photos"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons name="images-outline" size={24} color={colors.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Photos of syllabus pages (Recommended)
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  Only the pages for your subjects. Faster and more accurate than a whole PDF.
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
-
-            {/* Option 2: PDF */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
+            />
+            <SourceCard
+              icon="document-text-outline"
+              title="Syllabus PDF"
+              body="Reads every page, so it's slower. Photos of just your pages work better."
               onPress={handlePickPdf}
               accessibilityLabel="Import from PDF"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={24}
-                  color={colors.accent}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Syllabus PDF
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  Reads every page, so it's slower. Photos of just your pages work better.
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
-
-            {/* Option 3: Paste Text */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
+            />
+            <SourceCard
+              icon="clipboard-outline"
+              title="Paste Syllabus Text"
+              body="Copy & paste text directly from a course page"
               onPress={() => setIsPasting(!isPasting)}
-              accessibilityLabel="Paste Syllabus Text"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons
-                  name="clipboard-outline"
-                  size={24}
-                  color={colors.accent}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Paste Syllabus Text
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  Copy & paste text directly from a course page
-                </Text>
-              </View>
-              <Ionicons
-                name={isPasting ? 'chevron-up' : 'chevron-down'}
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
+              trailing={isPasting ? 'chevron-up' : 'chevron-down'}
+            />
 
             {/* Paste Text Area */}
             {isPasting && (
@@ -525,61 +437,40 @@ export default function SyllabusImportScreen() {
       {step === 'processing' && (
         <View style={styles.centerContent}>
           {job.status === 'error' ? (
-            <View
-              style={[
-                styles.errorCard,
-                { backgroundColor: colors.card, borderColor: colors.red },
-              ]}
-            >
-              <Ionicons name="alert-circle" size={44} color={colors.red} />
-              <Text style={[styles.h2, { color: colors.text, textAlign: 'center' }]}>
-                Import failed
-              </Text>
-              <Text
-                style={[
-                  styles.errorBody,
-                  { color: colors.textSecondary, textAlign: 'center' },
-                ]}
-              >
-                {job.error}
-              </Text>
-              {job.errorDetail && job.errorDetail !== job.error && (
-                <Text
-                  style={{
-                    color: colors.textSecondary,
-                    fontSize: 12,
-                    textAlign: 'center',
-                    marginTop: Spacing.sm,
-                  }}
-                >
-                  {job.errorDetail}
-                </Text>
-              )}
-              <View style={styles.errorBtnRow}>
-                <Button
-                  label="Choose another file"
-                  variant="outline"
-                  style={{ flex: 1 }}
-                  onPress={() => {
-                    clearSyllabusJob();
-                    setStep('picker');
-                  }}
-                />
-                <Button
-                  label="Try Again"
-                  style={{ flex: 1 }}
-                  onPress={() => {
-                    const src = job.source ?? pendingSourceRef.current;
-                    if (src) {
-                      runImport(src);
-                    } else {
+            <ErrorCard
+              title="Import failed"
+              message={job.error ?? ''}
+              actions={
+                <>
+                  <Button
+                    label="Choose another file"
+                    variant="outline"
+                    style={{ flex: 1 }}
+                    onPress={() => {
                       clearSyllabusJob();
                       setStep('picker');
-                    }
-                  }}
-                />
-              </View>
-            </View>
+                    }}
+                  />
+                  <Button
+                    label="Try Again"
+                    style={{ flex: 1 }}
+                    onPress={() => {
+                      const src = job.source ?? pendingSourceRef.current;
+                      if (src) {
+                        runImport(src);
+                      } else {
+                        clearSyllabusJob();
+                        setStep('picker');
+                      }
+                    }}
+                  />
+                </>
+              }
+            >
+              {job.errorDetail && job.errorDetail !== job.error && (
+                <Text style={{ color: colors.textSecondary, fontSize: 12, textAlign: 'center' }}>{job.errorDetail}</Text>
+              )}
+            </ErrorCard>
           ) : (
             job.status === 'idle' ? (
               <ImportProgress
@@ -787,30 +678,6 @@ const styles = StyleSheet.create({
   cardsList: {
     gap: Spacing.md,
   },
-  sourceCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.md,
-  },
-  badgeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitle: {
-    fontSize: FontSize.body,
-    fontWeight: '700',
-  },
-  cardDesc: {
-    fontSize: FontSize.caption,
-    marginTop: 2,
-    lineHeight: 18,
-  },
   pasteBox: {
     padding: Spacing.md,
     borderRadius: BorderRadius.card,
@@ -830,23 +697,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.lg,
-  },
-  errorCard: {
-    width: '100%',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  errorBody: {
-    fontSize: FontSize.caption + 1,
-    lineHeight: 20,
-  },
-  errorBtnRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
   },
   reviewContent: {
     padding: Spacing.md,
