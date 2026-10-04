@@ -44,6 +44,8 @@ export type ImportSyllabusOptions = {
   modelId: string;
   pdfWorker?: PdfWorkerHandle;
   onProgress?: (progress: SyllabusImportProgress) => void;
+  /** Abort to stop the import (the user pressed Stop). */
+  signal?: AbortSignal;
 };
 
 /** Pages sent to the model per call. */
@@ -117,7 +119,8 @@ function streamHandlers(
 export async function importSyllabus(
   options: ImportSyllabusOptions,
 ): Promise<SyllabusImportResult> {
-  const { source, provider, apiKey, modelId, pdfWorker, onProgress } = options;
+  const { source, provider, apiKey, modelId, pdfWorker, onProgress, signal } = options;
+  const stopped = { ok: false as const, error: 'Cancelled', friendlyError: 'Stopped.' };
 
   if (!apiKey || !apiKey.trim()) {
     return {
@@ -149,10 +152,11 @@ export async function importSyllabus(
     const res = await callSyllabus(
       (mode) =>
         `${syllabusToStructurePrompt(null, mode)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
-      { provider, apiKey, modelId, ...streamHandlers(onProgress, 1, 1) },
+      { provider, apiKey, modelId, signal, ...streamHandlers(onProgress, 1, 1) },
       (mode) => textNotices.push(FALLBACK_NOTICE[mode]),
     );
 
+    if (signal?.aborted) return stopped;
     if (!res.ok) {
       return {
         ok: false,
@@ -219,6 +223,7 @@ export async function importSyllabus(
     pageNums = pages.map((_, i) => i + 1);
   }
 
+  if (signal?.aborted) return stopped;
   if (pages.length === 0) {
     return {
       ok: false,
@@ -259,12 +264,13 @@ export async function importSyllabus(
     );
     const res = await callSyllabus(
       (mode) => `${syllabusToStructurePrompt(position, mode)}\n\n${pageList}`,
-      { images: chunk, provider, apiKey, modelId, ...handlers },
+      { images: chunk, provider, apiKey, modelId, signal, ...handlers },
       (mode) => {
         if (!notices.includes(FALLBACK_NOTICE[mode])) notices.push(FALLBACK_NOTICE[mode]);
       },
     );
 
+    if (signal?.aborted) return stopped;
     if (res.ok) {
       batches.push(res.data.subjects);
       position = lastSyllabusPosition(res.data.subjects) ?? position;

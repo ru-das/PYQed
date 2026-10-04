@@ -84,8 +84,8 @@ export type ImportPaperOptions = {
   resumeFromPage?: number;
   /** Previously extracted pages if resuming */
   previousPages?: PageExtraction[];
-  /** Checked between pages; return true to stop (user left the screen). */
-  shouldCancel?: () => boolean;
+  /** Abort to stop the import (the user pressed Stop or left the screen). */
+  signal?: AbortSignal;
 };
 
 type AiSettings = { provider: Provider; apiKey: string; modelId: string };
@@ -97,6 +97,7 @@ export function extractPage(
   previousLastQuestion: string | undefined,
   ai: AiSettings,
   onStream?: (e: StreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<GenerateJSONResult<PageQuestionsResponse>> {
   const basePrompt = pageToQuestionsPrompt(page.pageNumber, totalPages, previousLastQuestion);
   const prompt = page.text
@@ -107,6 +108,7 @@ export function extractPage(
     images: page.imageBase64 ? [page.imageBase64] : undefined,
     schemaName: 'pageQuestions',
     onStream,
+    signal,
     ...ai,
   });
 }
@@ -123,7 +125,7 @@ export async function importPaper(
     onProgress,
     resumeFromPage = 0,
     previousPages = [],
-    shouldCancel,
+    signal,
   } = options;
 
   const fail = (
@@ -198,7 +200,7 @@ export async function importPaper(
 
   for (let i = Math.max(0, resumeFromPage); i < totalPages; i++) {
     const pageNum = i + 1;
-    if (shouldCancel?.()) {
+    if (signal?.aborted) {
       return fail('Cancelled', 'Import cancelled.', extractedPages, detectedYear, detectedSession);
     }
 
@@ -234,6 +236,7 @@ export async function importPaper(
       previousLastQuestion,
       { provider, apiKey, modelId },
       pageStreamHandler(onProgress, pageNum, totalPages),
+      signal,
     );
 
     if (!res.ok) {

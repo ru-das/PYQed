@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { ANSWER_CUT_OFF, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
+import { ANSWER_CUT_OFF, generateJSON, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
 import {
   deriveQuestionType,
   checkNeedsReview,
@@ -473,5 +473,16 @@ describe('googleGenerationConfig', () => {
     assert.deepStrictEqual(googleGenerationConfig(0, true, false).thinkingConfig, { thinkingLevel: 'minimal' });
     assert.strictEqual(googleGenerationConfig(0, true, true).thinkingConfig, undefined);
     assert.strictEqual(googleGenerationConfig(1, false, true).responseMimeType, undefined);
+  });
+});
+
+describe('generateJSON stop', () => {
+  it('returns a fatal "Stopped." result without calling the network when already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const res = await generateJSON({
+      prompt: 'x', schemaName: 'pageQuestions', provider: 'aistudio', apiKey: 'k', modelId: 'm', signal: controller.signal,
+    });
+    assert.ok(!res.ok && res.fatal && res.friendlyError === 'Stopped.');
   });
 });

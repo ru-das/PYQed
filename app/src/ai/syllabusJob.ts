@@ -54,6 +54,14 @@ export function subscribe(fn: () => void) {
   };
 }
 
+let controller: AbortController | undefined;
+
+/** Stops the running import (and its AI call) and returns to idle. */
+export function cancelSyllabusJob() {
+  controller?.abort();
+  clearSyllabusJob();
+}
+
 export function clearSyllabusJob() {
   store.job = IDLE;
   store.listeners.forEach((fn) => fn());
@@ -69,6 +77,8 @@ export async function startSyllabusJob(
   source: SyllabusSource,
   getWorker?: () => Promise<PdfWorkerHandle | undefined>,
 ) {
+  controller?.abort(); // a restart replaces any run still going
+  const signal = (controller = new AbortController()).signal;
   set({
     status: 'running',
     startedAt: Date.now(),
@@ -88,12 +98,14 @@ export async function startSyllabusJob(
       apiKey: api.apiKey,
       modelId: api.modelId,
       pdfWorker: source.type === 'pdf' ? await getWorker?.() : undefined,
+      signal,
       onProgress: (p) => {
-        set({ progress: p });
+        if (!signal.aborted) set({ progress: p });
         showProgress('Reading syllabus', p.message);
       },
     });
 
+    if (signal.aborted) return; // stopped: the job was already cleared
     if (!result.ok) {
       const msg = result.friendlyError || result.error;
       finish("Couldn't finish reading", msg + ' Open PYQed to retry.');
@@ -105,6 +117,7 @@ export async function startSyllabusJob(
     toast(`Syllabus read: ${n} subject${n === 1 ? '' : 's'} found. Review before saving.`);
     set({ status: 'done', endedAt: Date.now(), result: result.subjects, notice: result.notice });
   } catch (err: any) {
+    if (signal.aborted) return;
     const msg = err?.message || 'Failed to import syllabus.';
     finish("Couldn't finish reading", msg);
     set({ status: 'error', endedAt: Date.now(), error: msg });

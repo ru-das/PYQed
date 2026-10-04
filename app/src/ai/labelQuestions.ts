@@ -92,6 +92,7 @@ export async function labelQuestions(
   apiKey: string,
   modelId: string,
   onProgress?: (p: LabelProgress) => void,
+  signal?: AbortSignal,
 ): Promise<{ questions: Question[]; error?: string }> {
   if (subject.units.length === 0) {
     // No syllabus units exist; questions remain unassigned
@@ -141,6 +142,7 @@ export async function labelQuestions(
         apiKey,
         modelId,
         temperature: 1, // 0 lets Gemma loop on "re-checking" (same as the syllabus call)
+        signal,
         onStream: streamProgress(
           (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
           countMatches(/"q"\s*:/g),
@@ -148,6 +150,7 @@ export async function labelQuestions(
       });
 
       if (!res.ok) {
+        if (signal?.aborted) break; // stopped by the user: keep the labels found so far, no error note
         error ??= res.friendlyError;
         console.warn('Topic labelling chunk failed:', res.error);
         if (res.fatal) break; // bad key / rate limit / offline: later chunks would fail too

@@ -22,6 +22,7 @@ import {
   getSyllabusJob,
   subscribe,
   clearSyllabusJob,
+  cancelSyllabusJob,
 } from '../src/ai/syllabusJob';
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
@@ -611,6 +612,10 @@ export default function SyllabusImportScreen() {
                 phrases={SYLLABUS_PHRASES}
                 peek={job.progress.live?.peek}
                 canLeave={job.status === 'running' && job.progress.stage !== 'reading'}
+                onStop={() => {
+                  cancelSyllabusJob();
+                  setStep('picker');
+                }}
                 current={job.progress.stage === 'reading' ? job.progress.current : 0}
                 total={job.progress.stage === 'reading' ? job.progress.total : 0}
               />

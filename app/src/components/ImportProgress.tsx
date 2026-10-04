@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import type { SyllabusImportProgress } from '../ai/importSyllabus';
+import { Button } from './ui';
 
 export type ProgressStep = { label: string; state: 'done' | 'current' | 'pending'; detail?: string };
 
@@ -18,6 +19,8 @@ type Props = {
   canLeave?: boolean;
   current?: number;
   total?: number;
+  /** Shows a Stop button; it asks first, then calls this. */
+  onStop?: () => void;
 };
 
 /** Phrases for the syllabus import. Just for fun, in the spirit of a coding agent's spinner words. */
@@ -166,6 +169,7 @@ export function ImportProgress({
   canLeave,
   current = 0,
   total = 0,
+  onStop,
 }: Props) {
   const colors = useThemeColors();
   const scan = useRef(new Animated.Value(0)).current;
@@ -293,6 +297,21 @@ export function ImportProgress({
             </View>
           ))}
         </View>
+      )}
+
+      {onStop && (
+        <Button
+          label="Stop"
+          variant="outline"
+          icon="stop-circle-outline"
+          onPress={() =>
+            Alert.alert('Stop the AI?', 'You can start again any time.', [
+              { text: 'Keep going', style: 'cancel' },
+              { text: 'Stop', style: 'destructive', onPress: onStop },
+            ])
+          }
+          accessibilityLabel="Stop the AI"
+        />
       )}
 
       {canLeave && (

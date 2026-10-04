@@ -76,6 +76,8 @@ export type GenerateJSONParams = {
   modelId: string;
   /** OpenAI-compatible provider only. If omitted, the saved one from Settings is used. */
   baseUrl?: string;
+  /** Abort to stop the call right away (the user pressed Stop). The result is a fatal "Stopped." failure. */
+  signal?: AbortSignal;
 };
 
 export type GenerateJSONResult<T = unknown> =
@@ -536,6 +538,14 @@ export async function generateJSON<T = unknown>(
     };
   }
 
+  // The user pressed Stop: fatal, so loops over pages / chunks stop too
+  const stopped = (): GenerateJSONResult<T> | null =>
+    params.signal?.aborted
+      ? { ok: false, error: 'Cancelled', friendlyError: 'Stopped.', fatal: true, timeMs: Date.now() - startTime }
+      : null;
+  const early = stopped();
+  if (early) return early;
+
   const runCall = async (
     promptText: string,
     withJsonMime: boolean,
@@ -548,6 +558,8 @@ export async function generateJSON<T = unknown>(
       controller.abort();
     };
     const timer = setTimeout(abort, timeoutMs);
+    const onStop = () => controller.abort();
+    params.signal?.addEventListener('abort', onStop);
     // Streaming: also cut off if the model goes silent (reset on every chunk)
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const onActivity = () => {
@@ -606,6 +618,7 @@ export async function generateJSON<T = unknown>(
     } finally {
       clearTimeout(timer);
       clearTimeout(idleTimer);
+      params.signal?.removeEventListener('abort', onStop);
     }
   };
 
@@ -624,6 +637,9 @@ export async function generateJSON<T = unknown>(
       res = await runCall(params.prompt, false);
     }
   }
+
+  const stoppedNow = stopped();
+  if (stoppedNow) return stoppedNow;
 
   // A cut-off or early-stopped answer is final: a retry would stop at the same place
   if (res.error === ANSWER_CUT_OFF || res.error?.startsWith(STOPPED_EARLY)) {
@@ -680,6 +696,8 @@ export async function generateJSON<T = unknown>(
     params.onRetry?.();
     const retryPrompt = `${params.prompt}\n\nIMPORTANT: Your previous response was invalid. Return ONLY a single raw valid JSON object without markdown fences, thoughts, or explanations.`;
     const retryRes = await runCall(retryPrompt, false, RETRY_TIMEOUT_MS);
+    const stoppedRetry = stopped();
+    if (stoppedRetry) return stoppedRetry;
 
     if (retryRes.text) {
       res = retryRes;

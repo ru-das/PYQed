@@ -108,6 +108,7 @@ export default function SubjectScreen() {
   const [filters, setFilters] = useState<QuestionFilters>({});
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [relabelling, setRelabelling] = useState(false);
+  const relabelAbort = useRef<AbortController>(null);
   // Live state of the "Sort unassigned" run, shown on the same progress page as a paper import
   const [relabelProg, setRelabelProg] = useState<{ current: number; total: number; live?: StreamProgress }>({ current: 0, total: 0 });
   const [relabelSec, setRelabelSec] = useState(0);
@@ -172,17 +173,19 @@ export default function SubjectScreen() {
     }
     setRelabelProg({ current: 0, total: 0 });
     setRelabelling(true);
+    const abort = new AbortController();
+    relabelAbort.current = abort;
     try {
       // Only topic-less questions are sent, so a topic the user set by hand is never touched
       const ids = unassignedQs.map((q) => q.id);
-      const labelled = await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg);
+      const labelled = await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg, abort.signal);
       const next: Subject = { ...subject, questions: labelled.questions };
       await saveSubject(next);
       setSubject(next);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const left = next.questions.filter((q) => q.topicId === null).length;
       if (left === 0) toast('Every question now has a topic');
-      else Alert.alert('Done', `${left} still couldn't be matched. You can move them by hand.${labelled.error ? `\n\nReason: ${labelled.error}` : ''}`);
+      else if (!abort.signal.aborted) Alert.alert('Done', `${left} still couldn't be matched. You can move them by hand.${labelled.error ? `\n\nReason: ${labelled.error}` : ''}`);
     } catch (e: any) {
       Alert.alert('Could not sort questions', e?.message || 'Something went wrong.');
     } finally {
@@ -766,6 +769,7 @@ export default function SubjectScreen() {
             peek={relabelProg.live?.peek}
             current={relabelProg.current}
             total={relabelProg.total}
+            onStop={() => relabelAbort.current?.abort()}
           />
         </View>
       </Modal>

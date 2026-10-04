@@ -98,7 +98,7 @@ export default function PaperImportScreen() {
     for (let i = 0; i < 100 && !pdfWorkerRef.current; i++) await new Promise((r) => setTimeout(r, 50));
     return pdfWorkerRef.current ?? undefined;
   };
-  const cancelRef = useRef(false); // set when the user leaves, so the page loop stops spending quota
+  const abortRef = useRef(new AbortController()); // aborted when the user leaves or presses Stop, so no more quota is spent
   const savedRef = useRef(false); // set once the paper is saved, so leaving needs no confirm
   const [saving, setSaving] = useState(false);
   // Several PDFs can be picked at once (one per year): the first runs now, the rest wait here
@@ -149,7 +149,7 @@ export default function PaperImportScreen() {
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
-  useEffect(() => () => { cancelRef.current = true; }, []);
+  useEffect(() => () => abortRef.current.abort(), []);
 
   // Reviewed edits live only in memory: confirm before the user leaves the review step.
   useEffect(() => {
@@ -204,6 +204,7 @@ export default function PaperImportScreen() {
   ) => {
     setStep('processing');
     setErrorMessage(null);
+    const signal = (abortRef.current = new AbortController()).signal;
 
     const apiSettings = await getApiSettings();
 
@@ -216,15 +217,15 @@ export default function PaperImportScreen() {
         pdfWorker: src.type === 'pdf' ? await ensureWorker() : undefined,
         resumeFromPage: fromPage,
         previousPages: prevPages,
-        shouldCancel: () => cancelRef.current,
+        signal,
         onProgress: (p) => {
           setProgress(p);
           showProgress('Reading paper', p.message);
         },
       });
 
+      if (signal.aborted) return; // stopped: the screen is already back at the picker
       if (!result.ok) {
-        if (cancelRef.current) return;
         finish("Couldn't finish reading", (result.friendlyError || result.error) + ' Open PYQed to resume.');
         setErrorMessage(result.friendlyError || result.error);
         setPartialPages(result.partialPages);
@@ -257,8 +258,22 @@ export default function PaperImportScreen() {
       if (result.notice) Alert.alert('Long PDF', result.notice);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      if (signal.aborted) return;
       finish("Couldn't finish reading", err?.message || 'Something went wrong.');
       setErrorMessage(err?.message || 'Failed to read paper.');
+    }
+  };
+
+  // Stop button: abort the AI call. While reading, go back to the picker; while sorting into topics,
+  // the paper is already saved, so just stop labelling and let it finish saving.
+  const stopImport = () => {
+    abortRef.current.abort();
+    queueRef.current = [];
+    setBatch({ index: 1, total: 1 });
+    if (retrying) return; // the retry modal closes itself when the call returns
+    if (step === 'processing') {
+      finish('Import stopped', 'You can start again any time.');
+      setStep('picker');
     }
   };
 
@@ -357,6 +372,7 @@ export default function PaperImportScreen() {
     const page = pages[activePageIndex];
     if (!page?.imageBase64 || retrying) return;
     setRetrying(true);
+    const signal = (abortRef.current = new AbortController()).signal;
     setProgress({ stage: 'extracting', current: page.pageNumber, total: pages.length, message: `Reading page ${page.pageNumber}...` });
     try {
       const ai = await getApiSettings();
@@ -367,7 +383,9 @@ export default function PaperImportScreen() {
         prev.length ? prev[prev.length - 1].number : undefined,
         ai,
         pageStreamHandler(setProgress, page.pageNumber, pages.length),
+        signal,
       );
+      if (signal.aborted) return;
       if (!res.ok) {
         Alert.alert("Still couldn't read this page", res.friendlyError);
         return;
@@ -528,6 +546,7 @@ export default function PaperImportScreen() {
           message: 'Labelling questions with syllabus topics...',
         });
 
+        const signal = (abortRef.current = new AbortController()).signal;
         try {
           const newQuestionIds = domainQuestions.map((q) => q.id);
           const labelled = await labelQuestions(
@@ -540,6 +559,7 @@ export default function PaperImportScreen() {
               setProgress({ stage: 'extracting', ...p });
               showProgress('Labelling questions', p.message);
             },
+            signal,
           );
           labelError = labelled.error;
           updatedSubject = {
@@ -807,6 +827,7 @@ export default function PaperImportScreen() {
               peek={progress.live?.peek}
               current={progress.current}
               total={progress.total}
+              onStop={stopImport}
             />
           )}
         </View>
@@ -821,6 +842,7 @@ export default function PaperImportScreen() {
             steps={paperSteps('extracting', progress)}
             phrases={PAPER_PHRASES}
             peek={progress.live?.peek}
+            onStop={stopImport}
           />
         </View>
       </Modal>
@@ -836,6 +858,7 @@ export default function PaperImportScreen() {
             peek={progress.live?.peek}
             current={progress.current}
             total={progress.total}
+            onStop={stopImport}
           />
         </View>
       )}
