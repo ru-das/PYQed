@@ -137,7 +137,7 @@ export function syllabusSteps(p: SyllabusImportProgress): ProgressStep[] {
       : found && (found.units || found.topics)
         ? `${found.units} unit${found.units === 1 ? '' : 's'} · ${found.topics} topic${found.topics === 1 ? '' : 's'} so far`
         : 'Writing the result';
-  const parts = [total > 1 ? `${stage === 'reading' ? 'Page' : 'Batch'} ${current} of ${total}` : undefined, p.after ? `Continuing after "${p.after}"` : undefined, stage === 'retrying' ? 'Answer was messy, asking again' : liveText];
+  const parts = [total > 1 ? `${stage === 'reading' ? 'Page' : 'Batch'} ${current} of ${total}` : undefined, stage === 'retrying' ? 'Answer was messy, asking again' : liveText];
   const cur = stage === 'reading' ? 0 : stage === 'merging' ? 2 : 1;
   return stepsAt(['Prepare pages', 'Read syllabus', 'Check & organise'], cur, parts.filter(Boolean).join(' · ') || undefined);
 }

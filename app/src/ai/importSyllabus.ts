@@ -30,8 +30,6 @@ export type SyllabusImportProgress = {
   current: number;
   total: number;
   message: string;
-  /** Set while the rest of a stopped answer is being asked for: the topic (or unit) it continues after */
-  after?: string;
   /** Live signal from the model while it works on this call (see StreamProgress) */
   live?: StreamProgress<{ units: number; topics: number }>;
 };
@@ -128,12 +126,11 @@ function streamHandlers(
   onProgress: ImportSyllabusOptions['onProgress'],
   current: number,
   total: number,
-  getAfter?: () => string | undefined,
 ) {
   const message = total > 1 ? `Reading batch ${current} of ${total}...` : 'Analyzing syllabus...';
   return {
     onStream: streamProgress(
-      (live) => onProgress?.({ stage: 'analyzing', current, total, message, live, after: getAfter?.() }),
+      (live) => onProgress?.({ stage: 'analyzing', current, total, message, live }),
       countFound,
     ),
     onRetry: () =>
@@ -276,8 +273,7 @@ export async function importSyllabus(
     const totalChunks = part + Math.ceil((pages.length - start) / size);
     part++;
 
-    let after: string | undefined; // set once an answer was stopped and the rest is being asked for
-    const handlers = streamHandlers(onProgress, part, totalChunks, () => after);
+    const handlers = streamHandlers(onProgress, part, totalChunks);
     onProgress?.({
       stage: 'analyzing',
       current: part,
@@ -297,11 +293,8 @@ export async function importSyllabus(
       (mode) => {
         if (!notices.includes(FALLBACK_NOTICE[mode])) notices.push(FALLBACK_NOTICE[mode]);
       },
-      (pos) => {
-        after = pos.topic ?? pos.unit ?? pos.subject;
-        devLog(`[syllabus] answer stopped early; continuing after "${after}"`);
-        onProgress?.({ stage: 'analyzing', current: part, total: totalChunks, message: `Continuing after "${after}"...`, after });
-      },
+      // Silent for the user (the rest is just asked for); the Metro log shows it
+      (pos) => devLog(`[syllabus] answer stopped early; continuing after "${pos.topic ?? pos.unit ?? pos.subject}"`),
     );
 
     if (signal?.aborted) return stopped;
