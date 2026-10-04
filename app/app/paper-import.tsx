@@ -17,7 +17,10 @@ import { toast } from '../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
 import { pickPhotos } from '../src/pick';
 import { getApiSettings, hasApiKey } from '../src/ai/settings';
-import { QuestionFields, parseMarks } from '../src/components/QuestionFields';
+import { parseMarks } from '../src/components/QuestionFields';
+import { QuestionCard } from '../src/components/QuestionCard';
+import { QuestionEditModal } from '../src/components/QuestionEditModal';
+import { Button, EmptyState, Footer } from '../src/components/ui';
 import { ZoomableImage } from '../src/components/ZoomableImage';
 import {
   importPaper,
@@ -376,18 +379,22 @@ export default function PaperImportScreen() {
     }
   };
 
-  const deleteQuestion = (qId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPages((prevPages) =>
-      prevPages.map((p, pIdx) => {
-        if (pIdx !== activePageIndex) return p;
-        return {
-          ...p,
-          questions: p.questions.filter((q) => q.id !== qId),
-        };
-      }),
-    );
-  };
+  const deleteQuestion = (qId: string) =>
+    Alert.alert('Delete question?', 'This removes it from the paper.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setPages((prevPages) =>
+            prevPages.map((p, pIdx) =>
+              pIdx === activePageIndex ? { ...p, questions: p.questions.filter((q) => q.id !== qId) } : p,
+            ),
+          );
+        },
+      },
+    ]);
 
   const addMissingQuestion = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -766,32 +773,13 @@ export default function PaperImportScreen() {
               )}
 
               <View style={styles.errorBtnRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.outlineBtn,
-                    { borderColor: colors.border, backgroundColor: colors.surface },
-                  ]}
-                  onPress={() => setStep('picker')}
-                >
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-
+                <Button label="Cancel" variant="outline" onPress={() => setStep('picker')} style={{ flex: 1 }} />
                 {source && (
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
+                  <Button
+                    label={partialPages.length > 0 ? 'Resume Import' : 'Try Again'}
                     onPress={() => runImport(source, resumePage, partialPages)}
-                  >
-                    <Text
-                      style={[
-                        styles.primaryBtnText,
-                        { color: colors.accentText },
-                      ]}
-                    >
-                      {partialPages.length > 0 ? 'Resume Import' : 'Try Again'}
-                    </Text>
-                  </TouchableOpacity>
+                    style={{ flex: 1 }}
+                  />
                 )}
               </View>
             </View>
@@ -875,18 +863,6 @@ export default function PaperImportScreen() {
                 />
               </View>
             </View>
-
-            <TouchableOpacity
-              style={[styles.saveBtn, { backgroundColor: colors.accent }]}
-              onPress={handleSavePaper}
-              disabled={saving}
-              accessibilityLabel="Save paper"
-            >
-              <Ionicons name="checkmark" size={18} color={colors.accentText} />
-              <Text style={[styles.saveBtnText, { color: colors.accentText }]}>
-                Save paper
-              </Text>
-            </TouchableOpacity>
           </View>
 
           {/* Page Selector Tabs */}
@@ -1011,14 +987,14 @@ export default function PaperImportScreen() {
                     Try again, or add its questions by hand below.
                   </Text>
                   {currentPage.imageBase64 ? (
-                    <TouchableOpacity
-                      onPress={retryPage}
+                    <Button
+                      label={retrying ? 'Reading…' : 'Retry this page'}
+                      variant="danger"
+                      compact
                       disabled={retrying}
-                      style={[styles.retryBtn, { borderColor: colors.red, opacity: retrying ? 0.6 : 1 }]}
-                      accessibilityLabel="Retry this page"
-                    >
-                      <Text style={{ color: colors.red, fontWeight: '700' }}>{retrying ? 'Reading…' : 'Retry this page'}</Text>
-                    </TouchableOpacity>
+                      onPress={retryPage}
+                      style={{ alignSelf: 'flex-start', marginTop: Spacing.sm }}
+                    />
                   ) : null}
                 </View>
               </View>
@@ -1050,236 +1026,48 @@ export default function PaperImportScreen() {
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
                 Questions ({currentPage?.questions.length ?? 0})
               </Text>
-              <TouchableOpacity
-                style={[
-                  styles.addQBtn,
-                  { borderColor: colors.accent, backgroundColor: colors.accent + '15' },
-                ]}
+              <Button
+                label="Add question"
+                variant="outline"
+                compact
+                icon="add"
                 onPress={addMissingQuestion}
                 accessibilityLabel="Add missing question"
-              >
-                <Ionicons name="add" size={16} color={colors.accent} />
-                <Text style={[styles.addQBtnText, { color: colors.accent }]}>
-                  Add question
-                </Text>
-              </TouchableOpacity>
+              />
             </View>
 
             {/* Questions List */}
             {currentPage?.questions.length === 0 ? (
-              <View
-                style={[
-                  styles.emptyQuestionsBox,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-              >
-                <Text style={{ color: colors.textSecondary }}>
-                  No questions extracted on this page. Tap "Add Question" to enter one.
-                </Text>
-              </View>
+              <EmptyState
+                icon="help-circle-outline"
+                title="No questions on this page"
+                body="Nothing was extracted here. Tap Add question to enter one."
+              />
             ) : (
-              currentPage?.questions.map((q) => {
-                const isEditing = editingQuestionId === q.id;
-
-                return (
-                  <View
-                    key={q.id}
-                    style={[
-                      styles.questionCard,
-                      {
-                        backgroundColor: colors.card,
-                        borderColor: q.needsReview ? colors.amber : colors.border,
-                      },
-                    ]}
-                  >
-                    {/* Header Row */}
-                    <View style={styles.qHeader}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, flex: 1 }}>
-                        <View
-                          style={[
-                            styles.numberBadge,
-                            { backgroundColor: colors.chip },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.numberBadgeText,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {q.number || '—'}
-                          </Text>
-                        </View>
-
-                        {q.marks !== '' ? (
-                          <View
-                            style={[
-                              styles.marksBadge,
-                              { backgroundColor: colors.surface, borderColor: colors.border },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.marksBadgeText,
-                                { color: colors.text },
-                              ]}
-                            >
-                              {q.marks} m
-                            </Text>
-                          </View>
-                        ) : (
-                          <View
-                            style={[
-                              styles.warningBadge,
-                              { backgroundColor: colors.amberBg },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.warningBadgeText,
-                                { color: colors.amber },
-                              ]}
-                            >
-                              ? marks
-                            </Text>
-                          </View>
-                        )}
-
-                        <View
-                          style={[
-                            styles.typeBadge,
-                            { backgroundColor: colors.chip },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.typeBadgeText,
-                              { color: colors.textSecondary },
-                            ]}
-                          >
-                            {q.type}
-                          </Text>
-                        </View>
-
-                        {q.group ? (
-                          <Text
-                            style={[
-                              styles.groupLabel,
-                              { color: colors.textSecondary },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {q.group}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      {/* Action buttons */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                        <TouchableOpacity
-                          style={styles.iconActionBtn}
-                          onPress={() =>
-                            setEditingQuestionId(isEditing ? null : q.id)
-                          }
-                          onLongPress={() => toast(isEditing ? 'Done editing' : 'Edit question', 'info')}
-                          accessibilityLabel={isEditing ? 'Done editing' : 'Edit question'}
-                        >
-                          <Ionicons
-                            name={isEditing ? 'chevron-up' : 'pencil-outline'}
-                            size={18}
-                            color={isEditing ? colors.accent : colors.textSecondary}
-                          />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={styles.iconActionBtn}
-                          onPress={() => deleteQuestion(q.id)}
-                          onLongPress={() => toast('Delete question', 'info')}
-                          accessibilityLabel="Delete question"
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={18}
-                            color={colors.red}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Inline warnings */}
-                    {q.marks === '' && (
-                      <View style={styles.warningLine}>
-                        <Ionicons
-                          name="alert-circle-outline"
-                          size={14}
-                          color={colors.amber}
-                        />
-                        <Text
-                          style={[
-                            styles.warningLineText,
-                            { color: colors.amber },
-                          ]}
-                        >
-                          Marks not printed. Enter marks if known or leave blank.
-                        </Text>
-                      </View>
-                    )}
-
-                    {q.text.trim().length < 10 && q.text.trim().length > 0 && (
-                      <View style={styles.warningLine}>
-                        <Ionicons
-                          name="information-circle-outline"
-                          size={14}
-                          color={colors.amber}
-                        />
-                        <Text
-                          style={[
-                            styles.warningLineText,
-                            { color: colors.amber },
-                          ]}
-                        >
-                          Question text is very short. Check scan.
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* Question Content View or Edit View */}
-                    {!isEditing ? (
-                      <Text style={[styles.qText, { color: colors.text }]}>
-                        {q.text || '(Empty question text)'}
-                      </Text>
-                    ) : (
-                      <View style={styles.editContainer}>
-                        <QuestionFields
-                          value={q}
-                          onChange={(patch) => updateQuestion(q.id, (old) => ({ ...old, ...patch }))}
-                        />
-
-                        <TouchableOpacity
-                          style={[
-                            styles.doneEditBtn,
-                            { backgroundColor: colors.accent },
-                          ]}
-                          onPress={() => setEditingQuestionId(null)}
-                        >
-                          <Text
-                            style={[
-                              styles.doneEditText,
-                              { color: colors.accentText },
-                            ]}
-                          >
-                            Done Editing
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                );
-              })
+              currentPage?.questions.map((q) => (
+                <QuestionCard
+                  key={q.id}
+                  q={{ ...q, marks: parseMarks(q.marks), group: q.group || undefined }}
+                  warnings
+                  onEdit={() => setEditingQuestionId(q.id)}
+                  onDelete={() => deleteQuestion(q.id)}
+                />
+              ))
             )}
-
-            <View style={{ height: Spacing.xl * 2 }} />
           </ScrollView>
+
+          <Footer>
+            <Button label="Save paper" icon="checkmark" loading={saving} onPress={handleSavePaper} />
+          </Footer>
+
+          <QuestionEditModal
+            values={currentPage?.questions.find((q) => q.id === editingQuestionId) ?? null}
+            onSave={(fields) => {
+              if (editingQuestionId) updateQuestion(editingQuestionId, (old) => ({ ...old, ...fields }));
+              setEditingQuestionId(null);
+            }}
+            onClose={() => setEditingQuestionId(null)}
+          />
         </View>
       )}
     </View>
@@ -1380,25 +1168,6 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: Spacing.sm,
   },
-  outlineBtn: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryBtn: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: BorderRadius.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryBtnText: {
-    fontSize: FontSize.body - 1,
-    fontWeight: '700',
-  },
   metaBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1417,20 +1186,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     fontSize: FontSize.caption + 1,
     fontWeight: '600',
-  },
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 44,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.button,
-    alignSelf: 'flex-end',
-    justifyContent: 'center',
-  },
-  saveBtnText: {
-    fontSize: FontSize.caption + 1,
-    fontWeight: '700',
   },
   pageTabsContainer: {
     borderBottomWidth: 1,
@@ -1491,15 +1246,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.card,
     borderWidth: 1,
   },
-  retryBtn: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1,
-    borderRadius: BorderRadius.button,
-    marginTop: Spacing.xs,
-  },
   gapTitle: {
     fontSize: FontSize.caption + 1,
     fontWeight: '700',
@@ -1516,113 +1262,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: FontSize.h3,
-    fontWeight: '700',
-  },
-  addQBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-  },
-  addQBtnText: {
-    fontSize: FontSize.caption,
-    fontWeight: '700',
-  },
-  emptyQuestionsBox: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  questionCard: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.sm,
-  },
-  qHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  numberBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.chip,
-  },
-  numberBadgeText: {
-    fontSize: FontSize.caption,
-    fontWeight: '700',
-  },
-  marksBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.chip,
-    borderWidth: 1,
-  },
-  marksBadgeText: {
-    fontSize: FontSize.caption,
-    fontWeight: '600',
-  },
-  warningBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.chip,
-  },
-  warningBadgeText: {
-    fontSize: FontSize.caption,
-    fontWeight: '700',
-  },
-  typeBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.chip,
-  },
-  typeBadgeText: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  groupLabel: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-    maxWidth: 90,
-  },
-  iconActionBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  warningLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  warningLineText: {
-    fontSize: FontSize.tiny,
-    fontWeight: '600',
-  },
-  qText: {
-    fontSize: FontSize.body - 1,
-    lineHeight: 22,
-  },
-  editContainer: {
-    gap: Spacing.sm,
-    paddingTop: Spacing.xs,
-  },
-  doneEditBtn: {
-    height: 36,
-    borderRadius: BorderRadius.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.xs,
-  },
-  doneEditText: {
-    fontSize: FontSize.caption,
     fontWeight: '700',
   },
   input: {

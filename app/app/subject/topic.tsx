@@ -5,16 +5,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from '../../src/haptics';
@@ -22,7 +13,10 @@ import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme
 import { displayNumber, getSubject, saveSubject, Subject, Question, Unit, Topic } from '../../src/store/subjects';
 import { collapseRepeats, defaultSort, groupIndex } from '../../src/logic/ranking';
 import { QuestionCard } from '../../src/components/QuestionCard';
-import { QuestionEditModal } from '../../src/components/QuestionEditModal';
+import { QuestionEditModal, toFields, applyFields } from '../../src/components/QuestionEditModal';
+import type { QuestionFieldValues } from '../../src/components/QuestionFields';
+import { EmptyState, Sheet, SheetScroll } from '../../src/components/ui';
+import { toast } from '../../src/components/Toast';
 
 export default function TopicScreen() {
   const colors = useThemeColors();
@@ -72,36 +66,45 @@ export default function TopicScreen() {
   const questions = defaultSort(rawQuestions, subject.questions);
   const title = isUnassigned ? 'Unassigned questions' : currentTopic?.name || 'Topic';
 
-  const update = async (next: Subject) => {
+  const update = async (next: Subject, message: string) => {
     await saveSubject(next);
     setSubject(next);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast(message);
   };
 
   const handleMoveToTopic = async (targetTopicId: string | null, targetUnitId: string | null) => {
     if (!movingQuestion) return;
     const id = movingQuestion.id;
     setMovingQuestion(null);
-    await update({
-      ...subject,
-      questions: subject.questions.map((q) =>
-        q.id !== id
-          ? q
-          : {
-              ...q,
-              topicId: targetTopicId,
-              unitId: targetUnitId,
-              editedByUser: true, // user edit wins: AI never overwrites
-              topicConfidence: null,
-              repeatGroupId: null, // repeat groups are per topic
-            },
-      ),
-    });
+    await update(
+      {
+        ...subject,
+        questions: subject.questions.map((q) =>
+          q.id !== id
+            ? q
+            : {
+                ...q,
+                topicId: targetTopicId,
+                unitId: targetUnitId,
+                editedByUser: true, // user edit wins: AI never overwrites
+                topicConfidence: null,
+                repeatGroupId: null, // repeat groups are per topic
+              },
+        ),
+      },
+      'Question moved',
+    );
   };
 
-  const handleSaveEdit = async (updated: Question) => {
+  const handleSaveEdit = async (fields: QuestionFieldValues) => {
+    if (!editingQuestion) return;
+    const updated = applyFields(editingQuestion, fields);
     setEditingQuestion(null);
-    await update({ ...subject, questions: subject.questions.map((q) => (q.id === updated.id ? updated : q)) });
+    await update(
+      { ...subject, questions: subject.questions.map((q) => (q.id === updated.id ? updated : q)) },
+      'Question updated',
+    );
   };
 
   const handleDelete = (q: Question) =>
@@ -112,17 +115,10 @@ export default function TopicScreen() {
         style: 'destructive',
         onPress: () => {
           const { [q.id]: _gone, ...practice } = subject.practice;
-          update({ ...subject, questions: subject.questions.filter((x) => x.id !== q.id), practice });
+          update({ ...subject, questions: subject.questions.filter((x) => x.id !== q.id), practice }, 'Question deleted');
         },
       },
     ]);
-
-  const openMenu = (q: Question) =>
-    Alert.alert(`${displayNumber(q.number)} options`, undefined, [
-      { text: 'Move to topic', onPress: () => setMovingQuestion(q) },
-      { text: 'Edit', onPress: () => setEditingQuestion(q) },
-      { text: 'Delete', style: 'destructive', onPress: () => handleDelete(q) },
-    ], { cancelable: true });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -153,15 +149,15 @@ export default function TopicScreen() {
         </View>
 
         {questions.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="help-circle-outline" size={48} color={colors.textSecondary} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No questions here</Text>
-            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-              {isUnassigned
+          <EmptyState
+            icon="help-circle-outline"
+            title="No questions here"
+            body={
+              isUnassigned
                 ? 'Every question has a topic.'
-                : 'Questions from imported papers that match this topic will appear here.'}
-            </Text>
-          </View>
+                : 'Questions from imported papers that match this topic will appear here.'
+            }
+          />
         ) : (
           <View style={{ gap: Spacing.sm }}>
             {collapseRepeats(questions).map(([q, ...otherVersions]) => (
@@ -171,108 +167,98 @@ export default function TopicScreen() {
                 versions={otherVersions}
                 all={subject.questions}
                 groups={groups}
-                onMenu={() => openMenu(q)}
+                onMove={() => setMovingQuestion(q)}
+                onEdit={() => setEditingQuestion(q)}
+                onDelete={() => handleDelete(q)}
               />
             ))}
           </View>
         )}
       </ScrollView>
 
-      <QuestionEditModal question={editingQuestion} onSave={handleSaveEdit} onClose={() => setEditingQuestion(null)} />
+      <QuestionEditModal
+        values={editingQuestion && toFields(editingQuestion)}
+        onSave={handleSaveEdit}
+        onClose={() => setEditingQuestion(null)}
+      />
 
-      {/* Move to Topic Modal */}
-      <Modal
+      {/* Move to topic */}
+      <Sheet
         visible={movingQuestion !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setMovingQuestion(null)}
+        title="Move to topic"
+        subtitle={movingQuestion ? `${displayNumber(movingQuestion.number)}: ${movingQuestion.text}` : undefined}
+        onClose={() => setMovingQuestion(null)}
       >
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setMovingQuestion(null)} />
-          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.modalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Move to topic</Text>
-                <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {movingQuestion ? displayNumber(movingQuestion.number) : ''}: {movingQuestion?.text}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setMovingQuestion(null)} style={styles.closeBtn} accessibilityLabel="Close">
-                <Ionicons name="close" size={24} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.modalScroll}>
-              {/* Option to Unassign */}
-              <TouchableOpacity
-                style={[
-                  styles.topicOption,
-                  { borderColor: colors.border, backgroundColor: colors.card },
-                  movingQuestion?.topicId === null && { borderColor: colors.accent },
-                ]}
-                onPress={() => handleMoveToTopic(null, null)}
-              >
-                <Ionicons name="help-circle-outline" size={20} color={colors.amber} />
-                <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-                  <Text style={[styles.topicOptionTitle, { color: colors.text }]}>
-                    Unassigned
-                  </Text>
-                  <Text style={[styles.topicOptionSub, { color: colors.textSecondary }]}>
-                    Remove from topic assignment
-                  </Text>
-                </View>
-                {movingQuestion?.topicId === null && (
-                  <Ionicons name="checkmark" size={20} color={colors.accent} />
-                )}
-              </TouchableOpacity>
-
-              {/* Units and Topics */}
-              {subject.units.map((unit) => (
-                <View key={unit.id} style={styles.unitGroup}>
-                  <Text style={[styles.unitGroupTitle, { color: colors.accent }]}>
-                    {unit.name}
-                  </Text>
-                  {unit.topics.map((t) => {
-                    const isSelected = movingQuestion?.topicId === t.id;
-                    return (
-                      <TouchableOpacity
-                        key={t.id}
-                        style={[
-                          styles.topicOption,
-                          { borderColor: colors.border, backgroundColor: colors.card },
-                          isSelected && { borderColor: colors.accent, backgroundColor: colors.chip },
-                        ]}
-                        onPress={() => handleMoveToTopic(t.id, unit.id)}
-                      >
-                        <Ionicons
-                          name="folder-outline"
-                          size={18}
-                          color={isSelected ? colors.accent : colors.textSecondary}
-                        />
-                        <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-                          <Text style={[styles.topicOptionTitle, { color: colors.text }]}>
-                            {t.name}
-                          </Text>
-                          {t.details ? (
-                            <Text
-                              style={[styles.topicOptionSub, { color: colors.textSecondary }]}
-                              numberOfLines={1}
-                            >
-                              {t.details}
-                            </Text>
-                          ) : null}
-                        </View>
-                        {isSelected && (
-                          <Ionicons name="checkmark" size={20} color={colors.accent} />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
-            </ScrollView>
+      <SheetScroll>
+        {/* Option to Unassign */}
+        <TouchableOpacity
+          style={[
+            styles.topicOption,
+            { borderColor: colors.border, backgroundColor: colors.card },
+            movingQuestion?.topicId === null && { borderColor: colors.accent },
+          ]}
+          onPress={() => handleMoveToTopic(null, null)}
+        >
+          <Ionicons name="help-circle-outline" size={20} color={colors.amber} />
+          <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+            <Text style={[styles.topicOptionTitle, { color: colors.text }]}>
+              Unassigned
+            </Text>
+            <Text style={[styles.topicOptionSub, { color: colors.textSecondary }]}>
+              Remove from topic assignment
+            </Text>
           </View>
-        </View>
-      </Modal>
+          {movingQuestion?.topicId === null && (
+            <Ionicons name="checkmark" size={20} color={colors.accent} />
+          )}
+        </TouchableOpacity>
+
+        {/* Units and Topics */}
+        {subject.units.map((unit) => (
+          <View key={unit.id} style={styles.unitGroup}>
+            <Text style={[styles.unitGroupTitle, { color: colors.accent }]}>
+              {unit.name}
+            </Text>
+            {unit.topics.map((t) => {
+              const isSelected = movingQuestion?.topicId === t.id;
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[
+                    styles.topicOption,
+                    { borderColor: colors.border, backgroundColor: colors.card },
+                    isSelected && { borderColor: colors.accent, backgroundColor: colors.chip },
+                  ]}
+                  onPress={() => handleMoveToTopic(t.id, unit.id)}
+                >
+                  <Ionicons
+                    name="folder-outline"
+                    size={18}
+                    color={isSelected ? colors.accent : colors.textSecondary}
+                  />
+                  <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                    <Text style={[styles.topicOptionTitle, { color: colors.text }]}>
+                      {t.name}
+                    </Text>
+                    {t.details ? (
+                      <Text
+                        style={[styles.topicOptionSub, { color: colors.textSecondary }]}
+                        numberOfLines={1}
+                      >
+                        {t.details}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {isSelected && (
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </SheetScroll>
+      </Sheet>
     </View>
   );
 }
@@ -322,59 +308,6 @@ const styles = StyleSheet.create({
   detailsText: {
     fontSize: FontSize.caption,
     lineHeight: 18,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl * 2,
-    gap: Spacing.sm,
-  },
-  emptyTitle: {
-    fontSize: FontSize.h3,
-    fontWeight: '700',
-  },
-  emptySub: {
-    fontSize: FontSize.caption,
-    textAlign: 'center',
-    maxWidth: 280,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modalSheet: {
-    borderTopLeftRadius: BorderRadius.card + 4,
-    borderTopRightRadius: BorderRadius.card + 4,
-    borderTopWidth: 1,
-    maxHeight: '80%',
-    padding: Spacing.md,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  modalTitle: {
-    fontSize: FontSize.h3,
-    fontWeight: '700',
-  },
-  modalSubtitle: {
-    fontSize: FontSize.caption,
-    marginTop: 2,
-  },
-  closeBtn: {
-    padding: Spacing.xs,
-  },
-  modalScroll: {
-    marginBottom: Spacing.md,
   },
   unitGroup: {
     marginTop: Spacing.md,

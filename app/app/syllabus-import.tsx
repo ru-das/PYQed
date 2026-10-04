@@ -22,7 +22,6 @@ import {
   getSyllabusJob,
   subscribe,
   clearSyllabusJob,
-  SyllabusJob,
 } from '../src/ai/syllabusJob';
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
