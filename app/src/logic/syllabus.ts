@@ -30,6 +30,9 @@ export function lastSyllabusPosition(subjects: RawSyllabusSubject[]): SyllabusPo
   };
 }
 
+const copyTopic = (t: RawSyllabusTopic): RawSyllabusTopic => ({ name: t.name.trim(), details: t.details?.trim() });
+const copyUnit = (u: RawSyllabusUnit): RawSyllabusUnit => ({ name: u.name.trim(), topics: u.topics.map(copyTopic) });
+
 /**
  * Merges multiple sets of syllabus subjects by normalized subject name.
  * Combines units with the same normalized name, and prevents duplicate topics.
@@ -49,13 +52,7 @@ export function mergeSyllabusSubjects(
         mergedMap.set(subKey, {
           name: sub.name.trim(),
           code: sub.code?.trim() || null,
-          units: sub.units.map((u) => ({
-            name: u.name.trim(),
-            topics: u.topics.map((t) => ({
-              name: t.name.trim(),
-              details: t.details?.trim(),
-            })),
-          })),
+          units: sub.units.map(copyUnit),
         });
       } else {
         const existing = mergedMap.get(subKey)!;
@@ -82,10 +79,7 @@ export function mergeSyllabusSubjects(
                 (t) => t.name.trim().toLowerCase() === tKey,
               );
               if (!existingTopic) {
-                existingUnit.topics.push({
-                  name: topic.name.trim(),
-                  details: topic.details?.trim(),
-                });
+                existingUnit.topics.push(copyTopic(topic));
               } else if (topic.details?.trim()) {
                 // Same topic on both sides of a chunk boundary: keep both halves of its details
                 const more = topic.details.trim();
@@ -95,13 +89,7 @@ export function mergeSyllabusSubjects(
             }
           } else {
             // Add new unit
-            existing.units.push({
-              name: unit.name.trim(),
-              topics: unit.topics.map((t) => ({
-                name: t.name.trim(),
-                details: t.details?.trim(),
-              })),
-            });
+            existing.units.push(copyUnit(unit));
           }
         }
       }
