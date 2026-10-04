@@ -315,6 +315,14 @@ describe('validateSyllabusStructure', () => {
     }
   });
 
+  it('keeps long topic details whole (the prompt sets no length limit)', () => {
+    const details = 'Heat transfer by conduction, convection and radiation; '.repeat(10).trim(); // ~550 chars
+    const res = validateSyllabusStructure({
+      subjects: [{ name: 'Physics', units: [{ name: 'Unit 1', topics: [{ name: 'Heat', details }] }] }],
+    });
+    assert.ok(res.ok && res.data.subjects[0].units[0].topics[0].details === details);
+  });
+
   it('rejects if more than 30 subjects', () => {
     const subjects = Array.from({ length: 31 }, (_, i) => ({
       name: `Subject ${i}`,

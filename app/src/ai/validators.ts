@@ -254,7 +254,7 @@ export function validateSyllabusStructure(
 
         let details: string | undefined = undefined;
         if (typeof t.details === 'string' && t.details.trim().length > 0) {
-          details = t.details.trim().slice(0, 200);
+          details = t.details.trim().slice(0, 2000); // safety cap only: the prompt sets no length limit
         }
 
         topics.push({ name: tName, details });
