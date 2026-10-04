@@ -27,7 +27,7 @@ import {
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
-import { ImportProgress, ProgressStep, SYLLABUS_PHRASES } from '../src/components/ImportProgress';
+import { ImportProgress, SYLLABUS_PHRASES, syllabusSteps } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
 import { UnitsEditor } from '../src/components/UnitsEditor';
 
@@ -50,31 +50,6 @@ type EditableSubject = {
   code: string;
   units: EditableUnit[];
 };
-
-/** The real steps of the import, derived from what the job is doing right now. */
-function syllabusSteps(job: SyllabusJob): ProgressStep[] {
-  const { stage, found } = job.progress;
-  const labels = ['Prepare pages', 'AI is thinking', 'Writing the result'];
-  if (job.retried) labels.push('Asking again (answer was messy)');
-  labels.push('Check & organise');
-  const retryIdx = job.retried ? 3 : -1;
-  const last = labels.length - 1;
-  let cur = 0;
-  if (stage === 'analyzing' || stage === 'thinking') cur = 1;
-  else if (stage === 'writing') cur = 2;
-  else if (stage === 'retrying') cur = retryIdx;
-  else if (stage === 'merging') cur = last;
-  // After a retry the model thinks and writes again: that all counts as the retry step
-  if (job.retried && (stage === 'thinking' || stage === 'writing')) cur = retryIdx;
-  return labels.map((label, i) => ({
-    label,
-    state: i < cur ? 'done' : i === cur ? 'current' : 'pending',
-    detail:
-      i === cur && stage === 'writing' && found
-        ? `${found.units} unit${found.units === 1 ? '' : 's'} · ${found.topics} topic${found.topics === 1 ? '' : 's'} so far`
-        : undefined,
-  }));
-}
 
 export default function SyllabusImportScreen() {
   const colors = useThemeColors();
@@ -650,9 +625,9 @@ export default function SyllabusImportScreen() {
               <ImportProgress
                 title={job.progress.stage === 'reading' ? job.progress.message : 'Analyzing syllabus...'}
                 elapsedSec={elapsedSec}
-                steps={syllabusSteps(job)}
+                steps={syllabusSteps(job.progress)}
                 phrases={SYLLABUS_PHRASES}
-                peek={job.progress.stage === 'thinking' ? job.progress.peek : undefined}
+                peek={job.progress.live?.peek}
                 canLeave={job.status === 'running' && job.progress.stage !== 'reading'}
                 current={job.progress.stage === 'reading' ? job.progress.current : 0}
                 total={job.progress.stage === 'reading' ? job.progress.total : 0}

@@ -6,7 +6,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON, StreamEvent, PEEK_CHARS } from './client';
+import { generateJSON, streamProgress, StreamProgress } from './client';
 import { syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
@@ -26,14 +26,12 @@ export type SyllabusSource =
   | { type: 'text'; text: string };
 
 export type SyllabusImportProgress = {
-  stage: 'reading' | 'analyzing' | 'thinking' | 'writing' | 'retrying' | 'merging';
+  stage: 'reading' | 'analyzing' | 'retrying' | 'merging';
   current: number;
   total: number;
   message: string;
-  /** Tail of the model's own reasoning, shown while it thinks */
-  peek?: string;
-  /** Running count from the partial JSON while the model writes */
-  found?: { units: number; topics: number };
+  /** Live signal from the model while it works on this call (see StreamProgress) */
+  live?: StreamProgress<{ units: number; topics: number }>;
 };
 
 export type SyllabusImportResult =
@@ -51,41 +49,26 @@ export type ImportSyllabusOptions = {
 
 const count = (text: string, re: RegExp) => (text.match(re) || []).length;
 
-/** Turns the model's live stream into progress updates (at most one per 500 ms). */
+/** Units and topics in the partial JSON answer. Every unit has a "topics" key and every subject a
+ *  "units" key, so topics = all "name" keys minus the subject and unit names. */
+function countFound(text: string) {
+  const units = count(text, /"topics"\s*:/g);
+  const subjects = count(text, /"units"\s*:/g);
+  return { units, topics: Math.max(0, count(text, /"name"\s*:/g) - units - subjects) };
+}
+
+/** Turns the model's live stream into progress updates, like the paper and labelling imports do. */
 function streamHandlers(
   onProgress: ImportSyllabusOptions['onProgress'],
   current: number,
   total: number,
 ) {
-  let last = 0;
+  const message = total > 1 ? `Analyzing page ${current} of ${total}...` : 'Analyzing syllabus...';
   return {
-    onStream: (e: StreamEvent) => {
-      const now = Date.now();
-      if (now - last < 500) return;
-      last = now;
-      if (e.phase === 'thinking') {
-        onProgress?.({
-          stage: 'thinking',
-          current,
-          total,
-          message: 'AI is thinking...',
-          peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS),
-        });
-      } else {
-        // Partial JSON: every unit has a "topics" key and every subject a "units" key, so
-        // topics = all "name" keys minus the subject and unit names
-        const units = count(e.text, /"topics"\s*:/g);
-        const subjects = count(e.text, /"units"\s*:/g);
-        const topics = Math.max(0, count(e.text, /"name"\s*:/g) - units - subjects);
-        onProgress?.({
-          stage: 'writing',
-          current,
-          total,
-          message: 'Writing the result...',
-          found: { units, topics },
-        });
-      }
-    },
+    onStream: streamProgress(
+      (live) => onProgress?.({ stage: 'analyzing', current, total, message, live }),
+      countFound,
+    ),
     onRetry: () =>
       onProgress?.({ stage: 'retrying', current, total, message: 'Answer was messy, asking again...' }),
   };

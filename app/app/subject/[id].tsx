@@ -867,7 +867,7 @@ export default function SubjectScreen() {
             elapsedSec={relabelSec}
             steps={labelSteps(relabelKind, relabelProg)}
             phrases={LABEL_PHRASES}
-            peek={relabelProg.live?.phase === 'thinking' ? relabelProg.live.peek : undefined}
+            peek={relabelProg.live?.peek}
             current={relabelProg.current}
             total={relabelProg.total}
           />
