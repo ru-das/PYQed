@@ -60,6 +60,7 @@ let controller: AbortController | undefined;
 export function cancelSyllabusJob() {
   controller?.abort();
   clearSyllabusJob();
+  finish('Import stopped', 'You can start again any time.'); // also removes the sticky progress notification
 }
 
 export function clearSyllabusJob() {
@@ -100,7 +101,8 @@ export async function startSyllabusJob(
       pdfWorker: source.type === 'pdf' ? await getWorker?.() : undefined,
       signal,
       onProgress: (p) => {
-        if (!signal.aborted) set({ progress: p });
+        if (signal.aborted) return; // a late update must not bring the notification back after Stop
+        set({ progress: p });
         showProgress('Reading syllabus', p.message);
       },
     });
