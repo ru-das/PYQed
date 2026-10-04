@@ -118,7 +118,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
-      temperature: 1, // 0 let Gemma loop on endless "final checks"
+      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
       ...streamHandlers(onProgress, 1, 1),
     });
 
@@ -226,7 +226,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
-      temperature: 1, // 0 let Gemma loop on endless "final checks"
+      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
       ...handlers,
     });
 
