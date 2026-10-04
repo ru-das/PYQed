@@ -85,11 +85,22 @@ export function syllabusToStructurePrompt(
   // The fallbacks shrink the details further if the filter still blocks.
   const detailsRule = {
     exact:
-      '- "details" = the text printed for that topic, written in your own words with only slight changes. Keep every concept, term, formula and the same meaning and order, and leave nothing out, but do NOT copy it word for word: copying printed text word for word trips the provider\'s copy filter and stops your answer, so change the phrasing a little (different words or sentence structure, same meaning). Technical terms, names and formulas may stay as they are. No length limit; "" if none.',
+      '- "details" MUST be reworded, never copied. Rewrite the text printed for that topic in your own words: use different words and a different sentence structure for every phrase, keep the same meaning, every concept, term, formula and their order, and leave nothing out. Copying even a few printed words in a row (apart from technical terms, names and formulas) trips the provider\'s copy filter and stops your answer, so reword every sentence. Example: printed "Heat transfer by conduction, convection and radiation; Fourier\'s law" -> "How heat moves through conduction, convection and radiation, together with Fourier\'s law". No length limit; "" if none.',
     summary:
-      '- "details" = a short summary of the text printed for that topic, in your own words (at most about 20 words), never copying printed phrases word for word; "" if none. Names (subject, unit, topic) are still copied exactly.',
+      '- "details" MUST be reworded, never copied: a short summary of the text printed for that topic, entirely in your own words (at most about 20 words), with no printed phrase copied word for word; "" if none. Names (subject, unit, topic) are still copied exactly.',
     none: '- "details" = "" for every topic: leave details out. Names (subject, unit, topic) are still copied exactly.',
   }[details];
+  // The reword reminders only make sense when details are written at all
+  const rewords = details !== 'none';
+  const upFront = rewords
+    ? `\nIMPORTANT: copy subject, unit and topic NAMES exactly, but REWORD every topic's "details" in your own words. Never copy printed details word for word.`
+    : '';
+  const detailsException = rewords
+    ? 'Topic details are the one exception: they must be reworded, never copied (see the "details" rule below).'
+    : 'Topic details are left out (see the "details" rule below).';
+  const hardToReword = rewords
+    ? `\n- A detail is hard to reword -> use synonyms, reorder the phrase or turn a list into a sentence; technical terms stay as they are. Always reword, never leave a detail copied, and never drop a point just to avoid copying.`
+    : '';
   // Later chunks of a long syllabus start mid-subject; name the subject so the merge can join the pieces
   const continuation = previous
     ? `\nThese pages continue a syllabus. The previous pages ended inside subject "${previous.subject}"${
@@ -107,11 +118,12 @@ export function syllabusToStructurePrompt(
     : '';
   return `Read this university syllabus and list its subjects, units and topics as JSON.
 The document may contain several subjects, and a subject may start or end in the middle of a page: extract all of them.
+${upFront}
 ${continuation}${resumeNote}
 Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
 
 Rules:
-- Copy subject, unit and topic NAMES EXACTLY as printed. Do NOT fix typos, spelling, grammar, spacing or capitalisation of names: keep every mistake as printed. Only join a word split across a line break. Never summarise, shorten or reword names. Topic details are the one exception: see the "details" rule below.
+- Copy subject, unit and topic NAMES EXACTLY as printed. Do NOT fix typos, spelling, grammar, spacing or capitalisation of names: keep every mistake as printed. Only join a word split across a line break. Never summarise, shorten or reword names. ${detailsException}
 - Do NOT invent subjects, units or topics.
 - Skip marks distribution tables, book lists, reference lists, course outcomes (COs/POs) and other non-structural content, unless it is the only structure on the page.
 - Tables: a row with a unit or module number is a unit; the topics in that row are its topics.
@@ -123,8 +135,7 @@ When unsure:
 - Can't tell if a line is a unit or a topic -> make it a topic of the current unit.
 - Can't tell if a heading starts a new subject -> it does only if a course title or code is printed with it.
 - Topics with no unit heading above them -> one unit named "Unit 1".
-- A word you cannot read -> [?] in its place. Never guess it. A missing value -> null (code) or "" (details).
-- Not sure how to reword a detail -> keep the meaning and change a few words; never drop a point just to avoid copying.
+- A word you cannot read -> [?] in its place. Never guess it. A missing value -> null (code) or "" (details).${hardToReword}
 - Pick the first option that fits these rules; never compare alternatives. The student edits afterwards.
 
 Return ONLY JSON, written without indentation, in this shape (three subjects shown, each a different shape; output as many as the document has):

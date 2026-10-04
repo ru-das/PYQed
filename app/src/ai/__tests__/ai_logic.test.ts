@@ -205,6 +205,8 @@ describe('prompt wording', () => {
     assert.ok(summary.includes('in your own words') && !summary.includes('No length limit'));
     assert.ok(none.includes('leave details out') && !none.includes('in your own words'));
     assert.ok(none.includes('Names (subject, unit, topic) are still copied exactly'));
+    assert.ok(exact.includes('MUST be reworded') && summary.includes('MUST be reworded'));
+    assert.ok(!none.includes('REWORD') && !none.includes('reworded')); // no contradiction when details are left out
   });
 
   it('syllabus example shows several subjects', () => {
