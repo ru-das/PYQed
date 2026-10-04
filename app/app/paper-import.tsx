@@ -20,7 +20,7 @@ import { getApiSettings, hasApiKey, isConfigured } from '../src/ai/settings';
 import { parseMarks } from '../src/components/QuestionFields';
 import { QuestionCard } from '../src/components/QuestionCard';
 import { QuestionEditModal } from '../src/components/QuestionEditModal';
-import { Button, EmptyState, Footer } from '../src/components/ui';
+import { Button, EmptyState, ErrorCard, Footer, SourceCard } from '../src/components/ui';
 import { ZoomableImage } from '../src/components/ZoomableImage';
 import {
   importPaper,
@@ -671,77 +671,20 @@ export default function PaperImportScreen() {
           </View>
 
           <View style={styles.cardsList}>
-            {/* Option 1: PDF */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
+            <SourceCard
+              icon="document-attach-outline"
+              title="Question paper PDF"
+              body="One PDF per year. You can pick several at once."
               onPress={handlePickPdf}
               accessibilityLabel="Select PDF Paper"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons
-                  name="document-attach-outline"
-                  size={24}
-                  color={colors.accent}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Question paper PDF
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  One PDF per year. You can pick several at once.
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
-
-            {/* Option 2: Photos */}
-            <TouchableOpacity
-              style={[
-                styles.sourceCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
+            />
+            <SourceCard
+              icon="camera-outline"
+              title="Photos of the paper"
+              body="Select photos of each page in order"
               onPress={handlePickPhotos}
               accessibilityLabel="Select Photos of Paper"
-            >
-              <View
-                style={[
-                  styles.badgeIcon,
-                  { backgroundColor: colors.accent + '15' },
-                ]}
-              >
-                <Ionicons name="camera-outline" size={24} color={colors.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>
-                  Photos of the paper
-                </Text>
-                <Text
-                  style={[styles.cardDesc, { color: colors.textSecondary }]}
-                >
-                  Select photos of each page in order
-                </Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </TouchableOpacity>
+            />
           </View>
 
           <View
@@ -762,57 +705,37 @@ export default function PaperImportScreen() {
       {step === 'processing' && (
         <View style={styles.centerContent}>
           {errorMessage ? (
-            <View
-              style={[
-                styles.errorCard,
-                { backgroundColor: colors.card, borderColor: colors.red },
-              ]}
-            >
-              <Ionicons name="alert-circle" size={44} color={colors.red} />
-              <Text style={[styles.h2, { color: colors.text, textAlign: 'center' }]}>
-                Import interrupted
-              </Text>
-              <Text
-                style={[
-                  styles.errorBody,
-                  { color: colors.textSecondary, textAlign: 'center' },
-                ]}
-              >
-                {errorMessage}
-              </Text>
-
-              {partialPages.length > 0 && (
-                <Text
-                  style={[
-                    styles.partialText,
-                    { color: colors.accent, textAlign: 'center' },
-                  ]}
-                >
-                  {partialPages.length} page(s) already saved. You can resume
-                  right from page {resumePage + 1}.
-                </Text>
-              )}
-
-              <View style={styles.errorBtnRow}>
-                <Button
-                  label="Cancel"
-                  variant="outline"
-                  onPress={() => {
-                    queueRef.current = [];
-                    setBatch({ index: 1, total: 1 });
-                    setStep('picker');
-                  }}
-                  style={{ flex: 1 }}
-                />
-                {source && (
+            <ErrorCard
+              title="Import interrupted"
+              message={errorMessage}
+              actions={
+                <>
                   <Button
-                    label={partialPages.length > 0 ? 'Resume Import' : 'Try Again'}
-                    onPress={() => runImport(source, resumePage, partialPages)}
+                    label="Cancel"
+                    variant="outline"
+                    onPress={() => {
+                      queueRef.current = [];
+                      setBatch({ index: 1, total: 1 });
+                      setStep('picker');
+                    }}
                     style={{ flex: 1 }}
                   />
-                )}
-              </View>
-            </View>
+                  {source && (
+                    <Button
+                      label={partialPages.length > 0 ? 'Resume Import' : 'Try Again'}
+                      onPress={() => runImport(source, resumePage, partialPages)}
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                </>
+              }
+            >
+              {partialPages.length > 0 && (
+                <Text style={[styles.partialText, { color: colors.accent, textAlign: 'center' }]}>
+                  {partialPages.length} page(s) already saved. You can resume right from page {resumePage + 1}.
+                </Text>
+              )}
+            </ErrorCard>
           ) : (
             <ImportProgress
               title={progress.message}
@@ -1119,10 +1042,6 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
   },
-  h2: {
-    fontSize: FontSize.h2,
-    fontWeight: '700',
-  },
   subtitle: {
     fontSize: FontSize.body,
     fontWeight: '600',
@@ -1136,29 +1055,6 @@ const styles = StyleSheet.create({
   },
   cardsList: {
     gap: Spacing.md,
-  },
-  sourceCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.md,
-  },
-  badgeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitle: {
-    fontSize: FontSize.h3,
-    fontWeight: '700',
-  },
-  cardDesc: {
-    fontSize: FontSize.caption,
-    marginTop: 2,
   },
   infoCard: {
     flexDirection: 'row',
@@ -1179,27 +1075,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: Spacing.lg,
   },
-  errorCard: {
-    width: '100%',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  errorBody: {
-    fontSize: FontSize.body - 1,
-    lineHeight: 20,
-  },
   partialText: {
     fontSize: FontSize.caption + 1,
     fontWeight: '600',
-  },
-  errorBtnRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    width: '100%',
-    marginTop: Spacing.sm,
   },
   metaBar: {
     flexDirection: 'row',
