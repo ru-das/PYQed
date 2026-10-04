@@ -257,19 +257,9 @@ export default function SyllabusImportScreen() {
         {
           text: 'Merge',
           onPress: () => {
-            // Convert selected to RawSyllabusSubject format for pure merge function
+            // The merge joins subjects by name, so every selected one gets the first one's name
             const batches = selectedSubjects.map((s) => [
-              {
-                name: s.name,
-                code: s.code || null,
-                units: s.units.map((u) => ({
-                  name: u.name,
-                  topics: u.topics.map((t) => ({
-                    name: t.name,
-                    details: t.details,
-                  })),
-                })),
-              },
+              { name: selectedSubjects[0].name, code: s.code || null, units: s.units },
             ]);
 
             const merged = mergeSyllabusSubjects(batches);
