@@ -101,6 +101,9 @@ export default function PaperImportScreen() {
   const cancelRef = useRef(false); // set when the user leaves, so the page loop stops spending quota
   const savedRef = useRef(false); // set once the paper is saved, so leaving needs no confirm
   const [saving, setSaving] = useState(false);
+  // Several PDFs can be picked at once (one per year): the first runs now, the rest wait here
+  const queueRef = useRef<{ src: PaperSource; name: string }[]>([]);
+  const [batch, setBatch] = useState({ index: 1, total: 1 });
 
   // Subject state
   const [subject, setSubject] = useState<Subject | null>(null);
@@ -264,16 +267,18 @@ export default function PaperImportScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
+        multiple: true,
         copyToCacheDirectory: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        const name = asset.name || 'Past Paper.pdf';
-        startImportWithSource(
-          { type: 'pdf', fileUri: asset.uri, fileName: name },
-          name,
-        );
+        const files = result.assets.map((a) => {
+          const name = a.name || 'Past Paper.pdf';
+          return { src: { type: 'pdf', fileUri: a.uri, fileName: name } as PaperSource, name };
+        });
+        queueRef.current = files.slice(1);
+        setBatch({ index: 1, total: files.length });
+        startImportWithSource(files[0].src, files[0].name);
       }
     } catch (err: any) {
       Alert.alert('Could not open PDF', err?.message || 'Something went wrong.');
@@ -296,6 +301,8 @@ export default function PaperImportScreen() {
         setStep('picker');
         return;
       }
+      queueRef.current = [];
+      setBatch({ index: 1, total: 1 });
       startImportWithSource(
         { type: 'photos', imageBase64s: picked.base64s, sourceNames: picked.names },
         picked.names[0] || 'Exam photos',
@@ -560,6 +567,23 @@ export default function PaperImportScreen() {
 
     finish('Paper saved', `${domainQuestions.length} questions added to ${subject.name}.`);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    // More PDFs waiting: keep the saved subject in memory (the next save builds on it), then read the next one
+    const next = queueRef.current.shift();
+    if (next) {
+      setSubject(updatedSubject);
+      setPages([]);
+      setPaperYear('');
+      setPaperSession('');
+      setActivePageIndex(0);
+      setPartialPages([]);
+      setResumePage(0);
+      setSaving(false);
+      setBatch((b) => ({ ...b, index: b.index + 1 }));
+      toast(`Saved ${domainQuestions.length} questions from ${newPaper.title}.${labelNote}`);
+      startImportWithSource(next.src, next.name);
+      return;
+    }
     savedRef.current = true;
     // Plain success is a toast; anything unsorted keeps an Alert so the reason is not missed
     if (!labelNote) {
@@ -593,13 +617,13 @@ export default function PaperImportScreen() {
       <Stack.Screen
         options={{
           title:
-            step === 'review'
+            (step === 'review'
               ? 'Review paper'
               : step === 'processing'
               ? 'Reading paper'
               : step === 'labelling'
               ? 'Sorting into topics'
-              : 'Add past papers',
+              : 'Add past papers') + (step !== 'picker' && batch.total > 1 ? ` ${batch.index} of ${batch.total}` : ''),
         }}
       />
 
@@ -660,7 +684,7 @@ export default function PaperImportScreen() {
                 <Text
                   style={[styles.cardDesc, { color: colors.textSecondary }]}
                 >
-                  Scanned images or digital text PYQ PDF
+                  One PDF per year. You can pick several at once.
                 </Text>
               </View>
               <Ionicons
@@ -755,7 +779,16 @@ export default function PaperImportScreen() {
               )}
 
               <View style={styles.errorBtnRow}>
-                <Button label="Cancel" variant="outline" onPress={() => setStep('picker')} style={{ flex: 1 }} />
+                <Button
+                  label="Cancel"
+                  variant="outline"
+                  onPress={() => {
+                    queueRef.current = [];
+                    setBatch({ index: 1, total: 1 });
+                    setStep('picker');
+                  }}
+                  style={{ flex: 1 }}
+                />
                 {source && (
                   <Button
                     label={partialPages.length > 0 ? 'Resume Import' : 'Try Again'}
