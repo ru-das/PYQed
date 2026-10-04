@@ -43,4 +43,5 @@ export const SECURE_STORE_KEYS = {
   openaiKey: 'pyqed_openai_key',
   openaiModel: 'pyqed_openai_model',
   openaiBaseUrl: 'pyqed_openai_base_url',
+  prefs: 'pyqed_prefs',
 } as const;

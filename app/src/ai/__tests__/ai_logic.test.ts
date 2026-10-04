@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { extractJSON, chatCompletionsUrl, parseSSE } from '../client';
+import { extractJSON, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
 import {
   validateRepeatGroups,
   deriveQuestionType,
@@ -397,5 +397,13 @@ describe('parseSSE', () => {
   it('skips non-data lines and bad JSON', () => {
     const r = parseSSE(': keep-alive\ndata: not json\ndata: {"ok":true}\n');
     assert.deepStrictEqual(r.events, [{ ok: true }]);
+  });
+});
+
+describe('googleGenerationConfig', () => {
+  it('asks Gemma to skip thinking only when thinking is off', () => {
+    assert.deepStrictEqual(googleGenerationConfig(0, true, false).thinkingConfig, { thinkingLevel: 'minimal' });
+    assert.strictEqual(googleGenerationConfig(0, true, true).thinkingConfig, undefined);
+    assert.strictEqual(googleGenerationConfig(1, false, true).responseMimeType, undefined);
   });
 });

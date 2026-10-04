@@ -3,6 +3,7 @@
  * kept) when the user leaves the import screen. The screen and the Home banner just subscribe.
  */
 import { getApiSettings } from './settings';
+import { toast } from '../components/Toast';
 import {
   importSyllabus,
   SyllabusSource,
@@ -97,6 +98,8 @@ export async function startSyllabusJob(
       return;
     }
     finish('Syllabus ready to review', 'Open PYQed to check the subjects.');
+    const n = result.subjects.length;
+    toast(`Syllabus read: ${n} subject${n === 1 ? '' : 's'} found. Review before saving.`);
     set({ status: 'done', endedAt: Date.now(), result: result.subjects });
   } catch (err: any) {
     const msg = err?.message || 'Failed to import syllabus.';

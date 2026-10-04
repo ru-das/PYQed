@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from './Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import { newId } from '../logic/subject';
 import { move } from '../logic/list';
@@ -16,6 +17,7 @@ function IconBtn({ name, label, onPress, color, disabled }: {
       onPress={onPress}
       disabled={disabled}
       accessibilityLabel={label}
+      onLongPress={() => toast(label, 'info')}
       style={[styles.iconBtn, disabled && { opacity: 0.3 }]}
     >
       <Ionicons name={name} size={20} color={color} />

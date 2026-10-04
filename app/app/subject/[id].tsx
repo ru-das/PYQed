@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from '../../src/components/Toast';
+import { getPrefs } from '../../src/prefs';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import {
   getSubject,
@@ -36,7 +38,7 @@ import {
   groupIndex,
 } from '../../src/logic/ranking';
 import * as Sharing from 'expo-sharing';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { ImportProgress, LABEL_PHRASES, labelSteps } from '../../src/components/ImportProgress';
 import { QuestionCard } from '../../src/components/QuestionCard';
 import { getApiSettings } from '../../src/ai/settings';
@@ -205,7 +207,8 @@ export default function SubjectScreen() {
       setSubject(next);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const left = next.questions.filter((q) => q.topicId === null).length;
-      Alert.alert('Done', left === 0 ? 'Every question now has a topic.' : `${left} still couldn't be matched. You can move them by hand.${labelled.error ? `\n\nReason: ${labelled.error}` : ''}`);
+      if (left === 0) toast('Every question now has a topic');
+      else Alert.alert('Done', `${left} still couldn't be matched. You can move them by hand.${labelled.error ? `\n\nReason: ${labelled.error}` : ''}`);
     } catch (e: any) {
       Alert.alert('Could not sort questions', e?.message || 'Something went wrong.');
     } finally {
@@ -238,13 +241,16 @@ export default function SubjectScreen() {
           headerRight: () => (
             <View style={{ flexDirection: 'row' }}>
             <TouchableOpacity
-              onPress={() =>
+              onPress={() => {
+                const mode = getPrefs().shareImages;
+                if (mode !== 'ask') return shareSubject(subject, mode === 'with');
                 Alert.alert('Share subject', 'Page images make the file much bigger.', [
                   { text: 'Share', onPress: () => shareSubject(subject, false) },
                   { text: 'Include page images', onPress: () => shareSubject(subject, true) },
                   { text: 'Cancel', style: 'cancel' },
-                ])
-              }
+                ]);
+              }}
+              onLongPress={() => toast('Share subject', 'info')}
               accessibilityLabel="Share subject"
               style={styles.headerBtn}
             >
@@ -254,10 +260,11 @@ export default function SubjectScreen() {
               onPress={() =>
                 router.push({ pathname: '/subject/edit', params: { id: subject.id } })
               }
-              accessibilityLabel="Edit subject"
+              onLongPress={() => toast('Edit units & topics', 'info')}
+              accessibilityLabel="Edit units & topics"
               style={styles.headerBtn}
             >
-              <Ionicons name="pencil" size={20} color={colors.text} />
+              <Ionicons name="create-outline" size={22} color={colors.text} />
             </TouchableOpacity>
             </View>
           ),

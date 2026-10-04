@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import { ProviderSelect } from './ProviderSelect';
 import {

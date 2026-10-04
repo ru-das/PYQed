@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Switch } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { getSubject, saveSubject, Subject, Question } from '../../src/store/subjects';
 import { QuestionFilters, askedYears, highPriorityUnitIds } from '../../src/logic/ranking';

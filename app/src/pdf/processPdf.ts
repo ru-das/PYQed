@@ -1,5 +1,5 @@
 import { File } from 'expo-file-system';
-import { MAX_PAGES_PER_IMPORT } from '../config';
+import { getPrefs } from '../prefs';
 import { PdfWorkerHandle, PageResult } from './PdfWorker';
 
 export type ProcessedPdfPage = {
@@ -51,7 +51,7 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
   const {
     fileUri,
     worker,
-    maxPages = MAX_PAGES_PER_IMPORT,
+    maxPages = getPrefs().maxPages,
     onProgress,
   } = options;
 

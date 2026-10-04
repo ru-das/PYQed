@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import { Stack, useNavigation, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../src/haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from '../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
 import { pickPhotos } from '../src/pick';
 import { hasApiKey } from '../src/ai/settings';
@@ -361,16 +362,8 @@ export default function SyllabusImportScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     savedRef.current = true;
     clearSyllabusJob();
-    Alert.alert(
-      toSave.length > 1 ? 'Subjects created' : 'Subject created',
-      `Created ${toSave.length} subject${toSave.length > 1 ? 's' : ''}.`,
-      [
-        {
-          text: 'View subjects',
-          onPress: () => router.replace('/(tabs)'),
-        },
-      ],
-    );
+    router.replace('/(tabs)');
+    toast(`Created ${toSave.length} subject${toSave.length > 1 ? 's' : ''}`);
   };
 
   const inputStyle = [

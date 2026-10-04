@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../src/haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from '../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
 import { pickPhotos } from '../src/pick';
 import { getApiSettings, hasApiKey } from '../src/ai/settings';
@@ -247,6 +248,8 @@ export default function PaperImportScreen() {
 
       setStep('review');
       finish('Paper ready to review', sourceName);
+      const qCount = editablePages.reduce((n, p) => n + p.questions.length, 0);
+      toast(`Read ${editablePages.length} page${editablePages.length === 1 ? '' : 's'}, found ${qCount} questions. Check them against the page images.`);
       if (result.notice) Alert.alert('Long PDF', result.notice);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
@@ -366,6 +369,7 @@ export default function PaperImportScreen() {
           i === activePageIndex ? { ...p, error: undefined, questions: toEditable(res.data.questions) } : p,
         ),
       );
+      toast(`Page ${page.pageNumber} read again: ${res.data.questions.length} questions`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } finally {
       setRetrying(false);
@@ -568,6 +572,12 @@ export default function PaperImportScreen() {
     finish('Paper saved', `${domainQuestions.length} questions added to ${subject.name}.`);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     savedRef.current = true;
+    // Plain success is a toast; anything unsorted keeps an Alert so the reason is not missed
+    if (!labelNote) {
+      router.replace(`/subject/${subject.id}`);
+      toast(`Saved ${domainQuestions.length} questions from ${newPaper.title}`);
+      return;
+    }
     Alert.alert(
       'Paper saved',
       `Saved ${domainQuestions.length} questions from ${newPaper.title}.${labelNote}`,
@@ -1171,10 +1181,11 @@ export default function PaperImportScreen() {
                           onPress={() =>
                             setEditingQuestionId(isEditing ? null : q.id)
                           }
-                          accessibilityLabel={isEditing ? 'Close edit' : 'Edit question'}
+                          onLongPress={() => toast(isEditing ? 'Done editing' : 'Edit question', 'info')}
+                          accessibilityLabel={isEditing ? 'Done editing' : 'Edit question'}
                         >
                           <Ionicons
-                            name={isEditing ? 'checkmark-circle' : 'pencil-outline'}
+                            name={isEditing ? 'chevron-up' : 'pencil-outline'}
                             size={18}
                             color={isEditing ? colors.accent : colors.textSecondary}
                           />
@@ -1183,6 +1194,7 @@ export default function PaperImportScreen() {
                         <TouchableOpacity
                           style={styles.iconActionBtn}
                           onPress={() => deleteQuestion(q.id)}
+                          onLongPress={() => toast('Delete question', 'info')}
                           accessibilityLabel="Delete question"
                         >
                           <Ionicons

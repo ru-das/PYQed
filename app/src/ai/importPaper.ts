@@ -5,7 +5,8 @@
  * detects the year, and supports resuming after a rate limit or network error.
  */
 
-import { Provider, MAX_PAGES_PER_IMPORT } from '../config';
+import { Provider } from '../config';
+import { getPrefs } from '../prefs';
 import { generateJSON, GenerateJSONResult, StreamEvent, streamProgress, StreamProgress } from './client';
 import { pageToQuestionsPrompt } from './prompts';
 import {
@@ -164,7 +165,7 @@ export async function importPaper(
           message: p.stage === 'reading' ? 'Reading PDF file...' : 'Loading PDF engine...',
         }),
       );
-      totalPages = Math.min(pageCount, MAX_PAGES_PER_IMPORT);
+      totalPages = Math.min(pageCount, getPrefs().maxPages);
       if (pageCount > totalPages) {
         notice = `Only the first ${totalPages} of ${pageCount} pages were read.`;
       }

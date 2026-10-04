@@ -148,6 +148,21 @@ function toFriendlyError(
   };
 }
 
+let thinkingOn = true;
+/** Set from Settings. Off = ask the model to skip its reasoning (faster, less accurate). */
+export function setThinking(on: boolean) {
+  thinkingOn = on;
+}
+
+/** Google AI Studio generationConfig, shared by the plain and streamed calls. */
+export function googleGenerationConfig(temperature: number, withJsonMime: boolean, thinking = thinkingOn) {
+  const cfg: Record<string, unknown> = { temperature };
+  if (withJsonMime) cfg.responseMimeType = 'application/json';
+  // Gemma 4 ignores includeThoughts:false; thinkingLevel 'minimal' is what actually turns it off
+  if (!thinking) cfg.thinkingConfig = { thinkingLevel: 'minimal' };
+  return cfg;
+}
+
 /**
  * Execute request to Google AI Studio
  */
@@ -180,12 +195,7 @@ async function callGoogleAIStudio(
     });
   }
 
-  const generationConfig: Record<string, unknown> = {
-    temperature,
-  };
-  if (withJsonMime) {
-    generationConfig.responseMimeType = 'application/json';
-  }
+  const generationConfig = googleGenerationConfig(temperature, withJsonMime);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -275,8 +285,7 @@ async function callGoogleAIStudioStream(
       inline_data: { mime_type: 'image/jpeg', data: img.replace(/^data:image\/[a-zA-Z]+;base64,/, '') },
     });
   }
-  const generationConfig: Record<string, unknown> = { temperature };
-  if (withJsonMime) generationConfig.responseMimeType = 'application/json';
+  const generationConfig = googleGenerationConfig(temperature, withJsonMime);
 
   const response = await streamFetch(url, {
     method: 'POST',
@@ -378,6 +387,8 @@ async function callOpenAICompatible(
   if (withJsonMode) {
     body.response_format = { type: 'json_object' };
   }
+  // OpenRouter's switch for reasoning; other OpenAI-style servers have no standard one
+  if (!thinkingOn && url.startsWith(OPENROUTER_BASE_URL)) body.reasoning = { enabled: false };
 
   const response = await fetch(url, {
     method: 'POST',

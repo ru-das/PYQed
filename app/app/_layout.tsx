@@ -1,11 +1,20 @@
+import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { useThemeColors } from '../src/theme';
+import { loadPrefs } from '../src/prefs';
+import { Toaster } from '../src/components/Toast';
 
 export default function RootLayout() {
   const scheme = useColorScheme();
   const colors = useThemeColors();
+  // Wait for saved preferences so the app never flashes the wrong theme
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    loadPrefs().finally(() => setReady(true));
+  }, []);
+  if (!ready) return null;
 
   return (
     <>
@@ -28,6 +37,7 @@ export default function RootLayout() {
         <Stack.Screen name="syllabus-import" options={{ title: 'Import syllabus' }} />
         <Stack.Screen name="paper-import" options={{ title: 'Add papers' }} />
       </Stack>
+      <Toaster />
     </>
   );
 }

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from '../../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { deleteSubject, emptySubject, getSubject, newId, saveSubject, Subject, Unit } from '../../src/store/subjects';
 import { UnitsEditor } from '../../src/components/UnitsEditor';
@@ -55,6 +56,7 @@ export default function EditSubject() {
     );
     await saveSubject({ ...subject, name: name.trim(), code: code.trim() || undefined, units: cleaned, questions });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast(id ? 'Changes saved' : 'Subject created');
     if (id) router.back();
     else router.replace({ pathname: '/subject/[id]', params: { id: subject.id } });
   }

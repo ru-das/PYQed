@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from './Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import { displayNumber, Question } from '../logic/subject';
 import { askedYears, timesAsked, GroupIndex } from '../logic/ranking';
@@ -49,7 +50,7 @@ export function QuestionCard({ q, versions, all, groups, topicName, showTopic, o
           {q.topicConfidence === 'low' && !q.editedByUser && chip('Low confidence', colors.amber, colors.amberBg)}
         </View>
         {onMenu ? (
-          <TouchableOpacity onPress={onMenu} style={styles.menuBtn} accessibilityLabel="Question options">
+          <TouchableOpacity onPress={onMenu} style={styles.menuBtn} onLongPress={() => toast('Question options', 'info')} accessibilityLabel="Question options">
             <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         ) : onPress ? (

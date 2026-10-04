@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image, Modal, ScrollView, TouchableOpacity, View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from './Toast';
 import { useThemeColors, Spacing } from '../theme';
 
 const ZOOM = 2.5;
@@ -40,7 +41,7 @@ export function ZoomableImage({ uri, height = 280 }: { uri: string; height?: num
               />
             </ScrollView>
           </ScrollView>
-          <TouchableOpacity style={styles.close} onPress={() => setOpen(false)} accessibilityLabel="Close zoom">
+          <TouchableOpacity style={styles.close} onPress={() => setOpen(false)} onLongPress={() => toast('Close', 'info')} accessibilityLabel="Close zoom">
             <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
         </View>

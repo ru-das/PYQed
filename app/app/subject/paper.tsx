@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { toast } from '../../src/components/Toast';
+import * as Haptics from '../../src/haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import {
   displayNumber, getSubject, saveSubject, pageImageUri, hasPageImage, newId, Subject, Question,
@@ -93,6 +94,7 @@ export default function PaperScreen() {
     });
     savedRef.current = true;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast('Changes saved');
     router.back();
   };
 
@@ -153,10 +155,10 @@ export default function PaperScreen() {
               <Text style={{ flex: 1, color: colors.textSecondary, fontSize: FontSize.caption, fontWeight: '700' }}>
                 {displayNumber(q.number)} · {q.marks === null ? '? marks' : `${q.marks} marks`} · {q.type}
               </Text>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => setEditing(q)} accessibilityLabel="Edit question">
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setEditing(q)} onLongPress={() => toast('Edit question', 'info')} accessibilityLabel="Edit question">
                 <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => remove(q.id)} accessibilityLabel="Delete question">
+              <TouchableOpacity style={styles.iconBtn} onPress={() => remove(q.id)} onLongPress={() => toast('Delete question', 'info')} accessibilityLabel="Delete question">
                 <Ionicons name="trash-outline" size={18} color={colors.red} />
               </TouchableOpacity>
             </View>

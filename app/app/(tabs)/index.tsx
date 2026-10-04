@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { listSubjects, importSubjectFile, summaryLine, SubjectMeta } from '../../src/store/subjects';
 import { Ionicons } from '@expo/vector-icons';
+import { toast } from '../../src/components/Toast';
 import { Logo } from '../../src/components/Logo';
 import { getSyllabusJob, subscribe } from '../../src/ai/syllabusJob';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
@@ -63,6 +64,7 @@ export default function HomeScreen() {
       if (r.canceled || !r.assets?.length) return;
       const s = await importSubjectFile(r.assets[0].uri);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast(`Opened ${s.name}`);
       router.push({ pathname: '/subject/[id]', params: { id: s.id } });
     } catch (e: any) {
       Alert.alert('Could not open file', e?.message || 'Something went wrong.');
@@ -101,11 +103,12 @@ export default function HomeScreen() {
         />
         <View style={styles.actionRow}>
           <TouchableOpacity
-            style={[styles.importBtn, { borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: Spacing.sm }]}
+            style={[styles.importBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
             onPress={openShared}
-            accessibilityLabel="Open shared subject"
+            accessibilityLabel="Open a shared subject file"
           >
-            <Ionicons name="download-outline" size={20} color={colors.text} />
+            <Ionicons name="folder-open-outline" size={20} color={colors.text} />
+            <Text style={[styles.importBtnText, { color: colors.text }]}>Open</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.importBtn, { borderColor: colors.accent, backgroundColor: colors.card }]}
@@ -186,7 +189,7 @@ export default function HomeScreen() {
             accessibilityLabel="Open shared subject"
           >
             <View style={styles.optionHeader}>
-              <Ionicons name="download-outline" size={20} color={colors.accent} />
+              <Ionicons name="folder-open-outline" size={20} color={colors.accent} />
               <Text style={[styles.optionTitle, { color: colors.text }]}>Open shared subject</Text>
             </View>
             <Text style={[styles.optionBody, { color: colors.textSecondary }]}>

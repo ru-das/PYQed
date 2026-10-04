@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { displayNumber, getSubject, saveSubject, Subject, Question, Unit, Topic } from '../../src/store/subjects';
 import { collapseRepeats, defaultSort, groupIndex } from '../../src/logic/ranking';

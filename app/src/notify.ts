@@ -5,6 +5,7 @@
  */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { getPrefs } from './prefs';
 
 const PROGRESS_ID = 'import-progress';
 let ready: Promise<boolean> | null = null;
@@ -39,7 +40,7 @@ function setup(): Promise<boolean> {
 /** Sticky progress notification; reusing the identifier replaces the old one. */
 export async function showProgress(title: string, body: string) {
   try {
-    if (!(await setup())) return;
+    if (!getPrefs().notifications || !(await setup())) return;
     await Notifications.scheduleNotificationAsync({
       identifier: PROGRESS_ID,
       content: { title, body, sticky: true, autoDismiss: false },
@@ -51,7 +52,7 @@ export async function showProgress(title: string, body: string) {
 /** Remove the progress notification and post a normal one. */
 export async function finish(title: string, body: string) {
   try {
-    if (!(await setup())) return;
+    if (!getPrefs().notifications || !(await setup())) return;
     await Notifications.dismissNotificationAsync(PROGRESS_ID);
     await Notifications.scheduleNotificationAsync({
       content: { title, body },

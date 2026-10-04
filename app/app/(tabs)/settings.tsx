@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,12 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
+  Switch,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { Logo } from '../../src/components/Logo';
 import { ProviderSelect } from '../../src/components/ProviderSelect';
-import * as Haptics from 'expo-haptics';
+import * as Haptics from '../../src/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import {
   useThemeColors,
@@ -29,9 +30,46 @@ import {
 } from '../../src/config';
 import { getApiSettings, setActiveProvider, updateApiSettings } from '../../src/ai/settings';
 import { generateJSON } from '../../src/ai/client';
+import { getPrefs, setPrefs, subscribePrefs, Prefs } from '../../src/prefs';
+
+/** A row of mutually exclusive options, styled like the model chips. */
+function Choice<T extends string | number | boolean>({ value, options, onChange }: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  const colors = useThemeColors();
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.xs }}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <TouchableOpacity
+            key={String(o.value)}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(o.value); }}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={o.label}
+            style={{
+              minHeight: 44, justifyContent: 'center', paddingHorizontal: 14,
+              borderRadius: BorderRadius.chip, borderWidth: 1,
+              backgroundColor: colors.card, borderColor: on ? colors.accent : colors.border,
+            }}
+          >
+            <Text style={{ fontSize: FontSize.caption + 1, fontWeight: '600', color: on ? colors.accent : colors.textSecondary }}>
+              {o.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 export default function SettingsScreen() {
   const colors = useThemeColors();
+  const prefs = useSyncExternalStore(subscribePrefs, getPrefs);
+  const set = (p: Partial<Prefs>) => { setPrefs(p); };
 
   const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
   const [apiKey, setApiKey] = useState<string>('');
@@ -335,6 +373,26 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* Section: Thinking */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>THINKING</Text>
+        <Choice
+          value={prefs.thinking}
+          onChange={(v) => set({ thinking: v })}
+          options={[{ value: true, label: 'On (recommended)' }, { value: false, label: 'Off' }]}
+        />
+        <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+          {prefs.thinking
+            ? 'Gemma works through each page before answering. It misses fewer questions on messy scans and tables, but a page can take a minute or more and uses more of your daily limit.'
+            : 'Answers come back in seconds and use less of your daily limit, but expect more missed questions and wrong marks, so check the review screen closely.'}
+        </Text>
+        {provider === 'openai' && (
+          <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+            Your server decides whether the model thinks; this switch only works for Google AI Studio and OpenRouter.
+          </Text>
+        )}
+      </View>
+
       {/* Test Key Button */}
       <TouchableOpacity
         style={[
@@ -390,6 +448,64 @@ export default function SettingsScreen() {
           </Text>
         </View>
       )}
+
+      {/* Section: Appearance */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>APPEARANCE</Text>
+        <Choice
+          value={prefs.theme}
+          onChange={(v) => set({ theme: v })}
+          options={[{ value: 'system', label: 'Match phone' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]}
+        />
+      </View>
+
+      {/* Section: Imports */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>PAGES PER IMPORT</Text>
+        <Choice
+          value={prefs.maxPages}
+          onChange={(v) => set({ maxPages: v })}
+          options={[{ value: 10, label: '10' }, { value: 30, label: '30' }, { value: 60, label: '60' }]}
+        />
+        <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+          Pages past this are skipped. A lower number saves your free daily limit.
+        </Text>
+      </View>
+
+      {/* Section: Sharing */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SHARING PAGE IMAGES</Text>
+        <Choice
+          value={prefs.shareImages}
+          onChange={(v) => set({ shareImages: v })}
+          options={[{ value: 'ask', label: 'Ask each time' }, { value: 'without', label: 'Never' }, { value: 'with', label: 'Always' }]}
+        />
+        <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+          Images make the shared file much bigger.
+        </Text>
+      </View>
+
+      {/* Section: Feedback */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>FEEDBACK</Text>
+        {([
+          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.'],
+          ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.'],
+        ] as const).map(([key, label, hint]) => (
+          <View key={key} style={[styles.rowBetween, { marginTop: Spacing.xs }]}>
+            <View style={{ flex: 1, paddingRight: Spacing.md }}>
+              <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '600' }}>{label}</Text>
+              <Text style={[styles.helperText, { color: colors.textSecondary, marginTop: 0 }]}>{hint}</Text>
+            </View>
+            <Switch
+              value={prefs[key]}
+              onValueChange={(v) => set({ [key]: v })}
+              trackColor={{ true: colors.accent, false: colors.border }}
+              accessibilityLabel={label}
+            />
+          </View>
+        ))}
+      </View>
 
       {/* Section: About & Privacy */}
       <View
