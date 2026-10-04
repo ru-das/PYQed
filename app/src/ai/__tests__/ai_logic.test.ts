@@ -190,12 +190,14 @@ describe('prompt wording', () => {
     }
   });
 
-  it('detailsInOwnWords swaps only the details rule', () => {
+  it('details mode swaps only the details rule', () => {
     const exact = syllabusToStructurePrompt();
-    const own = syllabusToStructurePrompt(null, true);
+    const summary = syllabusToStructurePrompt(null, 'summary');
+    const none = syllabusToStructurePrompt(null, 'none');
     assert.ok(exact.includes('copied exactly with no length limit'));
-    assert.ok(own.includes('in your own words') && !own.includes('copied exactly with no length limit'));
-    assert.ok(own.includes('Names (subject, unit, topic) are still copied exactly'));
+    assert.ok(summary.includes('in your own words') && !summary.includes('copied exactly with no length limit'));
+    assert.ok(none.includes('leave details out') && !none.includes('copied exactly with no length limit'));
+    assert.ok(none.includes('Names (subject, unit, topic) are still copied exactly'));
   });
 
   it('syllabus example shows several subjects', () => {

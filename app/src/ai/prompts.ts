@@ -67,11 +67,17 @@ Return ONLY JSON in this shape:
  * Input: syllabus page text or images.
  * Up to 3 pages per call; later chunks are told where the previous one ended, then merged by subject name.
  */
-export function syllabusToStructurePrompt(previous?: SyllabusPosition | null, detailsInOwnWords = false): string {
-  // Fallback when the provider's recitation filter blocked a word-for-word copy: names stay exact, details are summarised
-  const detailsRule = detailsInOwnWords
-    ? '- "details" = a short summary of the text printed for that topic, in your own words (at most about 20 words); "" if none. Names (subject, unit, topic) are still copied exactly.'
-    : '- "details" = the text printed for that topic, copied exactly with no length limit; "" if none.';
+/** How topic "details" are written: copied exactly (default), summarised, or left out. */
+export type DetailsMode = 'exact' | 'summary' | 'none';
+
+export function syllabusToStructurePrompt(previous?: SyllabusPosition | null, details: DetailsMode = 'exact'): string {
+  // Fallbacks when the provider's recitation filter blocked a word-for-word copy: names stay exact, details shrink
+  const detailsRule = {
+    exact: '- "details" = the text printed for that topic, copied exactly with no length limit; "" if none.',
+    summary:
+      '- "details" = a short summary of the text printed for that topic, in your own words (at most about 20 words); "" if none. Names (subject, unit, topic) are still copied exactly.',
+    none: '- "details" = "" for every topic: leave details out. Names (subject, unit, topic) are still copied exactly.',
+  }[details];
   // Later chunks of a long syllabus start mid-subject; name the subject so the merge can join the pieces
   const continuation = previous
     ? `\nThese pages continue a syllabus. The previous pages ended inside subject "${previous.subject}"${

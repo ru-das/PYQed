@@ -8,7 +8,7 @@
 
 import { Provider } from '../config';
 import { devLog, generateJSON, streamProgress, StreamProgress } from './client';
-import { syllabusToStructurePrompt } from './prompts';
+import { DetailsMode, syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
   SyllabusStructureResponse,
@@ -51,8 +51,10 @@ export type ImportSyllabusOptions = {
 // ~1000 px matches a cropped phone screenshot, which passed. Raise it if small table text is misread.
 const SYLLABUS_PDF_LONG_EDGE = 1000;
 const CHUNK_PAGES = 3; // 6 pages of a clean PDF render got blocked as RECITATION; photos of the same pages were fine
-const RECITATION_NOTICE =
-  'Google blocked copying the syllabus word for word, so topic details were summarised in the AI\'s own words. Names are exact.';
+const FALLBACK_NOTICE: Record<'summary' | 'none', string> = {
+  summary: 'Google blocked copying the syllabus word for word, so topic details were summarised in the AI\'s own words. Names are exact.',
+  none: 'Google kept blocking the syllabus text, so some topics have no details. Names are exact.',
+};
 
 const count = (text: string, re: RegExp) => (text.match(re) || []).length;
 
@@ -68,25 +70,28 @@ type SyllabusCall = Parameters<typeof generateJSON<SyllabusStructureResponse>>[0
 
 /**
  * One syllabus call. If the provider's recitation filter blocks it (the answer copied public text word
- * for word), ask once more for the same pages with topic details in the model's own words.
- * `onFallback` tells the caller so the user hears about it.
+ * for word), ask again for the same pages with details summarised, then once more with no details.
+ * `onFallback` tells the caller which fallback ran so the user hears about it.
  */
 async function callSyllabus(
-  promptFor: (detailsInOwnWords: boolean) => string,
+  promptFor: (details: DetailsMode) => string,
   params: Omit<SyllabusCall, 'prompt' | 'schemaName' | 'temperature'>,
-  onFallback: () => void,
+  onFallback: (mode: 'summary' | 'none') => void,
 ) {
-  const call = (own: boolean) =>
+  const call = (mode: DetailsMode) =>
     generateJSON<SyllabusStructureResponse>({
       ...params,
-      prompt: promptFor(own),
+      prompt: promptFor(mode),
       schemaName: 'syllabusStructure',
       temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
     });
-  const res = await call(false);
-  if (res.ok || !res.recitation) return res;
-  onFallback();
-  return call(true);
+  let res = await call('exact');
+  for (const mode of ['summary', 'none'] as const) {
+    if (res.ok || !res.recitation) break;
+    onFallback(mode);
+    res = await call(mode);
+  }
+  return res;
 }
 
 /** Turns the model's live stream into progress updates, like the paper and labelling imports do. */
@@ -142,10 +147,10 @@ export async function importSyllabus(
 
     const textNotices: string[] = [];
     const res = await callSyllabus(
-      (own) =>
-        `${syllabusToStructurePrompt(null, own)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
+      (mode) =>
+        `${syllabusToStructurePrompt(null, mode)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
       { provider, apiKey, modelId, ...streamHandlers(onProgress, 1, 1) },
-      () => textNotices.push(RECITATION_NOTICE),
+      (mode) => textNotices.push(FALLBACK_NOTICE[mode]),
     );
 
     if (!res.ok) {
@@ -156,7 +161,7 @@ export async function importSyllabus(
       };
     }
 
-    return { ok: true, subjects: res.data.subjects, notice: textNotices[0] };
+    return { ok: true, subjects: res.data.subjects, notice: textNotices.join('\n') || undefined };
   }
 
   // --- Case 2 & 3: PDF or Photos ---
@@ -253,10 +258,10 @@ export async function importSyllabus(
       )} KB`,
     );
     const res = await callSyllabus(
-      (own) => `${syllabusToStructurePrompt(position, own)}\n\n${pageList}`,
+      (mode) => `${syllabusToStructurePrompt(position, mode)}\n\n${pageList}`,
       { images: chunk, provider, apiKey, modelId, ...handlers },
-      () => {
-        if (!notices.includes(RECITATION_NOTICE)) notices.push(RECITATION_NOTICE);
+      (mode) => {
+        if (!notices.includes(FALLBACK_NOTICE[mode])) notices.push(FALLBACK_NOTICE[mode]);
       },
     );
 
