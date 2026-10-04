@@ -3,6 +3,8 @@
  * Keep prompts general (for any university).
  */
 
+import type { SyllabusPosition } from '../logic/syllabus';
+
 /**
  * §8.2 — Paper page → questions prompt.
  * One call per page. Pass the previous page's last question number for continuity.
@@ -60,9 +62,18 @@ Output MUST be valid JSON adhering strictly to this schema:
  * ≤ 6 pages → one call with all content.
  * > 6 pages → per-page calls, then merge by subject name.
  */
-export function syllabusToStructurePrompt(): string {
+export function syllabusToStructurePrompt(previous?: SyllabusPosition | null): string {
+  // Later chunks of a long syllabus start mid-subject; name the subject so the merge can join the pieces
+  const continuation = previous
+    ? `\nThese pages continue a syllabus. The previous pages ended inside subject "${previous.subject}"${
+        previous.code ? ` (code ${previous.code})` : ''
+      }${previous.unit ? `, unit "${previous.unit}"` : ''}. If the first page starts without a new subject heading, that content belongs to "${previous.subject}": use exactly that subject name${
+        previous.code ? ' and code' : ''
+      }${previous.unit ? `, and unit "${previous.unit}" if it continues that unit` : ''}. Start a new subject only where a new subject heading is printed.\n`
+    : '';
   return `You are reading a university syllabus document. Extract the academic structure.
-
+The document may contain several subjects, and a subject may start or end in the middle of a page: extract all of them.
+${continuation}
 Instructions:
 - Copy subject names, unit names, topic names and topic details EXACTLY as printed in the document (only join words that are split across a line break). Do not summarise, shorten, or reword anything.
 - Do NOT invent subjects, units, or topics that aren't in the syllabus.

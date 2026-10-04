@@ -9,7 +9,7 @@ import {
   validateSyllabusStructure,
 } from '../validators';
 import { pageToQuestionsPrompt, syllabusToStructurePrompt } from '../prompts';
-import { mergeSyllabusSubjects } from '../../logic/syllabus';
+import { lastSyllabusPosition, mergeSyllabusSubjects } from '../../logic/syllabus';
 
 describe('extractJSON', () => {
   it('extracts plain JSON object', () => {
@@ -151,6 +151,17 @@ describe('syllabusToStructurePrompt', () => {
     assert.ok(prompt.includes('units'));
     assert.ok(prompt.includes('topics'));
     assert.ok(prompt.includes('Skip marks distribution tables'));
+  });
+
+  it('says a document can hold several subjects, and only names a previous subject when given one', () => {
+    const base = syllabusToStructurePrompt();
+    assert.ok(base.includes('several subjects'));
+    assert.ok(!base.includes('continue a syllabus'));
+
+    const next = syllabusToStructurePrompt({ subject: 'Operating Systems', code: 'CS401', unit: 'Unit 3: Memory' });
+    assert.ok(next.includes('continue a syllabus'));
+    assert.ok(next.includes('"Operating Systems" (code CS401)'));
+    assert.ok(next.includes('unit "Unit 3: Memory"'));
   });
 });
 
@@ -324,6 +335,21 @@ describe('mergeSyllabusSubjects', () => {
     assert.strictEqual(merged[0].units[0].topics[2].name, 'Deadlocks');
   });
 
+  it('joins a subject that continues in the next chunk, appending split topic details', () => {
+    const chunk1 = [
+      { name: 'Networks', code: 'CS502', units: [{ name: 'Unit 2', topics: [{ name: 'Routing', details: 'Distance vector,' }] }] },
+    ];
+    const chunk2 = [
+      { name: 'Networks', code: 'CS502', units: [{ name: 'Unit 2', topics: [{ name: 'Routing', details: 'link state.' }, { name: 'TCP' }] }] },
+      { name: 'Compilers', code: 'CS503', units: [] },
+    ];
+    const merged = mergeSyllabusSubjects([chunk1, chunk2]);
+    assert.strictEqual(merged.length, 2);
+    assert.strictEqual(merged[0].units.length, 1);
+    assert.strictEqual(merged[0].units[0].topics.length, 2);
+    assert.strictEqual(merged[0].units[0].topics[0].details, 'Distance vector, link state.');
+  });
+
   it('keeps distinct subjects separate', () => {
     const batch1 = [{ name: 'Compiler Design', code: 'CS501', units: [] }];
     const batch2 = [{ name: 'Computer Networks', code: 'CS502', units: [] }];
@@ -336,6 +362,21 @@ describe('mergeSyllabusSubjects', () => {
 });
 
 
+
+describe('lastSyllabusPosition', () => {
+  it('returns the last subject and its last unit', () => {
+    const pos = lastSyllabusPosition([
+      { name: 'A', code: null, units: [{ name: 'U1', topics: [] }] },
+      { name: 'B', code: 'B1', units: [{ name: 'U1', topics: [] }, { name: 'U2', topics: [] }] },
+    ]);
+    assert.deepStrictEqual(pos, { subject: 'B', code: 'B1', unit: 'U2' });
+  });
+
+  it('handles a subject with no units and an empty list', () => {
+    assert.deepStrictEqual(lastSyllabusPosition([{ name: 'A', code: null, units: [] }]), { subject: 'A', code: null, unit: null });
+    assert.strictEqual(lastSyllabusPosition([]), null);
+  });
+});
 
 describe('validateRepeatGroups (§8.4)', () => {
   it('drops unknown ids, reused ids and groups smaller than 2', () => {

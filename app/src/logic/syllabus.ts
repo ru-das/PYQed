@@ -9,6 +9,20 @@ import {
   RawSyllabusTopic,
 } from '../ai/validators';
 
+/** Where a chunk of pages ended: its last subject and that subject's last unit. */
+export type SyllabusPosition = { subject: string; code: string | null; unit: string | null };
+
+/** Used to tell the model which subject the next chunk of pages probably continues. */
+export function lastSyllabusPosition(subjects: RawSyllabusSubject[]): SyllabusPosition | null {
+  const last = subjects[subjects.length - 1];
+  if (!last) return null;
+  return {
+    subject: last.name,
+    code: last.code,
+    unit: last.units.length ? last.units[last.units.length - 1].name : null,
+  };
+}
+
 /**
  * Merges multiple sets of syllabus subjects by normalized subject name.
  * Combines units with the same normalized name, and prevents duplicate topics.
@@ -65,8 +79,11 @@ export function mergeSyllabusSubjects(
                   name: topic.name.trim(),
                   details: topic.details?.trim(),
                 });
-              } else if (!existingTopic.details && topic.details) {
-                existingTopic.details = topic.details.trim();
+              } else if (topic.details?.trim()) {
+                // Same topic on both sides of a chunk boundary: keep both halves of its details
+                const more = topic.details.trim();
+                if (!existingTopic.details) existingTopic.details = more;
+                else if (!existingTopic.details.includes(more)) existingTopic.details += ` ${more}`;
               }
             }
           } else {

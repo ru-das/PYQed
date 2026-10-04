@@ -134,7 +134,8 @@ export default function SyllabusImportScreen() {
     );
     setStep('review');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [step, job.status, job.result]);
+    if (job.notice) Alert.alert('Check the result', job.notice);
+  }, [step, job.status, job.result, job.notice]);
 
   // 1. Check API key before running import
   const startImportWithSource = async (source: SyllabusSource) => {

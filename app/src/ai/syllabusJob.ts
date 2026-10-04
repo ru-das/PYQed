@@ -20,6 +20,8 @@ export type SyllabusJob = {
   progress: SyllabusImportProgress;
   source?: SyllabusSource;
   result?: RawSyllabusSubject[];
+  /** Pages or parts that could not be read; shown when the review screen opens. */
+  notice?: string;
   error?: string;
   errorDetail?: string;
 };
@@ -70,6 +72,7 @@ export async function startSyllabusJob(
     progress: START,
     source,
     result: undefined,
+    notice: undefined,
     error: undefined,
     errorDetail: undefined,
   });
@@ -97,7 +100,7 @@ export async function startSyllabusJob(
     finish('Syllabus ready to review', 'Open PYQed to check the subjects.');
     const n = result.subjects.length;
     toast(`Syllabus read: ${n} subject${n === 1 ? '' : 's'} found. Review before saving.`);
-    set({ status: 'done', endedAt: Date.now(), result: result.subjects });
+    set({ status: 'done', endedAt: Date.now(), result: result.subjects, notice: result.notice });
   } catch (err: any) {
     const msg = err?.message || 'Failed to import syllabus.';
     finish("Couldn't finish reading", msg);

@@ -1,8 +1,9 @@
 /**
  * Syllabus Import orchestrator.
  * Supports PDF (via PdfWorker), photos, or pasted text.
- * ≤ 6 pages: single AI call.
- * > 6 pages: per-page sequential calls + merge by subject name.
+ * Pages go to the model in chunks of up to 6 (one call for a short syllabus). Each chunk after the first is
+ * told which subject/unit the previous one ended in, then the chunks are merged by subject name.
+ * Pages or chunks that fail are reported in `notice`, never dropped silently.
  */
 
 import { Provider } from '../config';
@@ -10,13 +11,11 @@ import { generateJSON, streamProgress, StreamProgress } from './client';
 import { syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
-  RawSyllabusUnit,
-  RawSyllabusTopic,
   SyllabusStructureResponse,
 } from './validators';
 import type { PdfWorkerHandle } from '../pdf/PdfWorker';
 import { processPdf, ProcessPdfProgress } from '../pdf/processPdf';
-import { mergeSyllabusSubjects } from '../logic/syllabus';
+import { lastSyllabusPosition, mergeSyllabusSubjects, SyllabusPosition } from '../logic/syllabus';
 
 export { mergeSyllabusSubjects };
 
@@ -35,7 +34,7 @@ export type SyllabusImportProgress = {
 };
 
 export type SyllabusImportResult =
-  | { ok: true; subjects: RawSyllabusSubject[] }
+  | { ok: true; subjects: RawSyllabusSubject[]; notice?: string }
   | { ok: false; error: string; friendlyError: string };
 
 export type ImportSyllabusOptions = {
@@ -46,6 +45,9 @@ export type ImportSyllabusOptions = {
   pdfWorker?: PdfWorkerHandle;
   onProgress?: (progress: SyllabusImportProgress) => void;
 };
+
+/** Pages sent to the model per call. */
+const CHUNK_PAGES = 6;
 
 const count = (text: string, re: RegExp) => (text.match(re) || []).length;
 
@@ -90,7 +92,6 @@ export async function importSyllabus(
     };
   }
 
-  const basePrompt = syllabusToStructurePrompt();
 
   // --- Case 1: Pasted Text ---
   if (source.type === 'text') {
@@ -109,7 +110,7 @@ export async function importSyllabus(
       message: 'Analyzing syllabus text...',
     });
 
-    const prompt = `${basePrompt}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`;
+    const prompt = `${syllabusToStructurePrompt()}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`;
 
     const res = await generateJSON<SyllabusStructureResponse>({
       prompt,
@@ -134,6 +135,8 @@ export async function importSyllabus(
 
   // --- Case 2 & 3: PDF or Photos ---
   let pages: string[] = []; // base64 JPEG per page
+  let pageNums: number[] = []; // the page number each image came from, for messages
+  const notices: string[] = [];
 
   if (source.type === 'pdf') {
     if (!pdfWorker) {
@@ -170,9 +173,18 @@ export async function importSyllabus(
     });
 
     // Always send the page image, even for text pages: table text extracts in a messy order.
-    pages = pdfResult.pages.flatMap((p) => (p.result.base64 ? [p.result.base64] : []));
+    const readable = pdfResult.pages.filter((p) => p.result.base64);
+    pages = readable.map((p) => p.result.base64!);
+    pageNums = readable.map((p) => p.pageNumber);
+
+    if (pdfResult.pageCount > pdfResult.processedCount) {
+      notices.push(`Only the first ${pdfResult.processedCount} of ${pdfResult.pageCount} pages were read.`);
+    }
+    const unreadable = pdfResult.pages.filter((p) => !p.result.base64).map((p) => p.pageNumber);
+    if (unreadable.length) notices.push(`Couldn't render page ${unreadable.join(', ')} of the PDF.`);
   } else if (source.type === 'photos') {
     pages = source.imageBase64s;
+    pageNums = pages.map((_, i) => i + 1);
   }
 
   if (pages.length === 0) {
@@ -183,86 +195,79 @@ export async function importSyllabus(
     };
   }
 
-  // --- Sub-branch A: ≤ 6 pages (Single AI call) ---
-  if (pages.length <= 6) {
+  // Up to CHUNK_PAGES pages go to the model together, so a subject that runs across a page break is
+  // seen in one piece. A short syllabus is a single chunk. For longer ones the last subject/unit of
+  // the previous chunk is passed on, because the next chunk may start in the middle of it.
+  const batches: RawSyllabusSubject[][] = [];
+  const totalChunks = Math.ceil(pages.length / CHUNK_PAGES);
+  let position: SyllabusPosition | null = null;
+  let lastError: { error: string; friendlyError: string } | undefined;
+
+  for (let c = 0; c < totalChunks; c++) {
+    const chunk = pages.slice(c * CHUNK_PAGES, (c + 1) * CHUNK_PAGES);
+    const nums = pageNums.slice(c * CHUNK_PAGES, (c + 1) * CHUNK_PAGES);
+    const range = nums.length > 1 ? `pages ${nums[0]}–${nums[nums.length - 1]}` : `page ${nums[0]}`;
+
+    const handlers = streamHandlers(onProgress, c + 1, totalChunks);
     onProgress?.({
       stage: 'analyzing',
-      current: 1,
-      total: 1,
-      message: `Analyzing syllabus (${pages.length} page${pages.length > 1 ? 's' : ''})...`,
+      current: c + 1,
+      total: totalChunks,
+      message: totalChunks > 1 ? `Analyzing ${range} (part ${c + 1} of ${totalChunks})...` : `Analyzing syllabus (${range})...`,
     });
 
-    const promptText =
-      `${basePrompt}\n\n` + pages.map((_, idx) => `--- Page ${idx + 1} is attached as an image ---`).join('\n');
-
+    const prompt: string =
+      `${syllabusToStructurePrompt(position)}\n\n` +
+      chunk.map((_, idx) => `--- Page ${nums[idx]} is attached as an image ---`).join('\n');
     const res = await generateJSON<SyllabusStructureResponse>({
-      prompt: promptText,
-      images: pages,
+      prompt,
+      images: chunk,
       schemaName: 'syllabusStructure',
       provider,
       apiKey,
       modelId,
       temperature: 1, // 0 let Gemma loop on endless "final checks"
-      ...streamHandlers(onProgress, 1, 1),
+      ...handlers,
     });
 
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: res.error,
-        friendlyError: res.friendlyError,
-      };
+    if (res.ok) {
+      batches.push(res.data.subjects);
+      position = lastSyllabusPosition(res.data.subjects) ?? position;
+      continue;
     }
 
-    return { ok: true, subjects: res.data.subjects };
+    // Never drop pages silently: say which ones could not be read and why
+    lastError = { error: res.error, friendlyError: res.friendlyError };
+    notices.push(`Couldn't read ${range} (${res.friendlyError}) Subjects from there may be missing.`);
+    if (res.fatal) {
+      // Bad key, rate limit or offline: the remaining chunks would fail the same way
+      if (c + 1 < totalChunks) notices.push(`Stopped before ${totalChunks - c - 1} more part(s).`);
+      break;
+    }
   }
 
-  // --- Sub-branch B: > 6 pages (Per-page calls + merge) ---
-  const batchSubjects: RawSyllabusSubject[][] = [];
-
-  for (let i = 0; i < pages.length; i++) {
-    const pageNum = i + 1;
-    const page = pages[i];
-
-    onProgress?.({
-      stage: 'analyzing',
-      current: pageNum,
-      total: pages.length,
-      message: `Analyzing page ${pageNum} of ${pages.length}...`,
-    });
-
-    const res = await generateJSON<SyllabusStructureResponse>({
-      prompt: `${basePrompt}\n\n--- Page ${pageNum} is attached as an image ---`,
-      images: [page],
-      schemaName: 'syllabusStructure',
-      provider,
-      apiKey,
-      modelId,
-      temperature: 1, // 0 let Gemma loop on endless "final checks"
-      ...streamHandlers(onProgress, pageNum, pages.length),
-    });
-
-    // A page with no syllabus content (cover, index, instructions) is fine; skip it
-    if (res.ok && res.data.subjects.length > 0) batchSubjects.push(res.data.subjects);
-  }
-
-  if (batchSubjects.length === 0) {
+  if (batches.length === 0) {
     return {
       ok: false,
-      error: 'No syllabus content extracted from pages',
+      error: lastError?.error ?? 'No syllabus content extracted from pages',
       friendlyError:
+        lastError?.friendlyError ??
         "Couldn't extract syllabus structure from the document. Please check the pages or try another file.",
     };
   }
 
-  onProgress?.({
-    stage: 'merging',
-    current: pages.length,
-    total: pages.length,
-    message: 'Merging subjects and units...',
-  });
+  if (batches.length > 1) {
+    onProgress?.({
+      stage: 'merging',
+      current: totalChunks,
+      total: totalChunks,
+      message: 'Merging subjects and units...',
+    });
+  }
 
-  const merged = mergeSyllabusSubjects(batchSubjects);
-
-  return { ok: true, subjects: merged };
+  return {
+    ok: true,
+    subjects: mergeSyllabusSubjects(batches),
+    notice: notices.length ? notices.join('\n') : undefined,
+  };
 }
