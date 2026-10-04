@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { toast } from '../../src/components/Toast';
 import * as Haptics from '../../src/haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import {
-  displayNumber, getSubject, saveSubject, pageImageUri, hasPageImage, newId, Subject, Question,
+  getSubject, saveSubject, pageImageUri, hasPageImage, newId, Subject, Question,
 } from '../../src/store/subjects';
 import { ZoomableImage } from '../../src/components/ZoomableImage';
-import { QuestionEditModal } from '../../src/components/QuestionEditModal';
+import { QuestionEditModal, toFields, applyFields } from '../../src/components/QuestionEditModal';
+import type { QuestionFieldValues } from '../../src/components/QuestionFields';
+import { QuestionCard } from '../../src/components/QuestionCard';
+import { Button, EmptyState, Footer } from '../../src/components/ui';
 
 /** Re-open a saved paper: check each page against its scan, fix questions, change year or session. */
 export default function PaperScreen() {
@@ -57,7 +59,9 @@ export default function PaperScreen() {
   const pageQs = qs.filter((q) => q.page === page);
   const showImage = hasPageImage(subject.id, paper.id, page);
 
-  const commit = (updated: Question) => {
+  const commit = (fields: QuestionFieldValues) => {
+    if (!editing) return;
+    const updated = applyFields(editing, fields);
     setEditing(null);
     setDirty(true);
     setQs((all) => (all.some((q) => q.id === updated.id) ? all.map((q) => (q.id === updated.id ? updated : q)) : [...all, updated]));
@@ -71,10 +75,18 @@ export default function PaperScreen() {
       needsReview: true, editedByUser: true,
     });
 
-  const remove = (id: string) => {
-    setDirty(true);
-    setQs((all) => all.filter((q) => q.id !== id));
-  };
+  const remove = (id: string) =>
+    Alert.alert('Delete question?', 'This removes it from the paper.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          setDirty(true);
+          setQs((all) => all.filter((q) => q.id !== id));
+        },
+      },
+    ]);
 
   const save = async () => {
     const y = parseInt(year.trim(), 10);
@@ -103,7 +115,7 @@ export default function PaperScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ title: paper.year ? `${paper.year} paper` : paper.title || 'Paper' }} />
-      <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Year</Text>
@@ -140,45 +152,22 @@ export default function PaperScreen() {
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.text, fontSize: FontSize.h3, fontWeight: '700' }}>Questions ({pageQs.length})</Text>
-          <TouchableOpacity onPress={addQuestion} style={[styles.addBtn, { borderColor: colors.accent }]} accessibilityLabel="Add question">
-            <Ionicons name="add" size={16} color={colors.accent} />
-            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: FontSize.caption }}>Add question</Text>
-          </TouchableOpacity>
+          <Button label="Add question" variant="outline" compact icon="add" onPress={addQuestion} style={{ paddingHorizontal: Spacing.md }} />
         </View>
 
         {pageQs.length === 0 && (
-          <Text style={{ color: colors.textSecondary }}>No questions on this page.</Text>
+          <EmptyState icon="help-circle-outline" title="No questions on this page" body="Tap Add question to enter one from the scan." />
         )}
         {pageQs.map((q) => (
-          <View key={q.id} style={[styles.card, { backgroundColor: colors.card, borderColor: q.needsReview ? colors.amber : colors.border, padding: Spacing.md, gap: Spacing.xs }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ flex: 1, color: colors.textSecondary, fontSize: FontSize.caption, fontWeight: '700' }}>
-                {displayNumber(q.number)} · {q.marks === null ? '? marks' : `${q.marks} marks`} · {q.type}
-              </Text>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => setEditing(q)} onLongPress={() => toast('Edit question', 'info')} accessibilityLabel="Edit question">
-                <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={() => remove(q.id)} onLongPress={() => toast('Delete question', 'info')} accessibilityLabel="Delete question">
-                <Ionicons name="trash-outline" size={18} color={colors.red} />
-              </TouchableOpacity>
-            </View>
-            <Text style={{ color: colors.text, fontSize: FontSize.body - 1, lineHeight: 22 }}>{q.text}</Text>
-          </View>
+          <QuestionCard key={q.id} q={q} warnings onEdit={() => setEditing(q)} onDelete={() => remove(q.id)} />
         ))}
       </ScrollView>
 
-      <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: colors.accent, opacity: dirty ? 1 : 0.4 }]}
-          onPress={save}
-          disabled={!dirty}
-          accessibilityLabel="Save changes"
-        >
-          <Text style={{ color: colors.accentText, fontWeight: '700', fontSize: FontSize.body }}>Save changes</Text>
-        </TouchableOpacity>
-      </View>
+      <Footer>
+        <Button label="Save changes" onPress={save} disabled={!dirty} />
+      </Footer>
 
-      <QuestionEditModal question={editing} onSave={commit} onClose={() => setEditing(null)} />
+      <QuestionEditModal values={editing && toFields(editing)} onSave={commit} onClose={() => setEditing(null)} />
     </View>
   );
 }
@@ -188,8 +177,4 @@ const styles = StyleSheet.create({
   input: { minHeight: 44, borderWidth: 1, borderRadius: BorderRadius.input, paddingHorizontal: Spacing.sm, fontSize: FontSize.body },
   card: { borderWidth: 1, borderRadius: BorderRadius.card },
   pageTab: { minHeight: 44, paddingHorizontal: Spacing.md, justifyContent: 'center', borderRadius: BorderRadius.button, borderWidth: 1 },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44, paddingHorizontal: Spacing.md, borderRadius: BorderRadius.button, borderWidth: 1 },
-  iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: Spacing.md, borderTopWidth: 1 },
-  saveBtn: { minHeight: 48, borderRadius: BorderRadius.button, alignItems: 'center', justifyContent: 'center' },
 });

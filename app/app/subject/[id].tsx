@@ -41,6 +41,7 @@ import * as Sharing from 'expo-sharing';
 import * as Haptics from '../../src/haptics';
 import { ImportProgress, LABEL_PHRASES, labelSteps } from '../../src/components/ImportProgress';
 import { QuestionCard } from '../../src/components/QuestionCard';
+import { Button, Chip, EmptyState, Segmented } from '../../src/components/ui';
 import { getApiSettings } from '../../src/ai/settings';
 import { labelQuestions } from '../../src/ai/labelQuestions';
 import { groupRepeats } from '../../src/ai/groupRepeats';
@@ -81,23 +82,15 @@ function FilterRow<K extends string>({ label, options, value, onSelect }: {
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
       <Text style={{ width: 44, fontSize: FontSize.tiny + 1, fontWeight: '600', color: colors.textSecondary }}>{label}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.xs }}>
-        {options.map((o) => {
-          const active = value === o.key;
-          return (
-            <TouchableOpacity
-              key={o.key}
-              hitSlop={{ top: 6, bottom: 6 }}
-              style={[
-                styles.filterChip,
-                { backgroundColor: active ? colors.accent : colors.card, borderColor: active ? colors.accent : colors.border },
-              ]}
-              onPress={() => onSelect(active ? undefined : o.key)}
-              accessibilityLabel={`${label} ${o.label}`}
-            >
-              <Text style={[styles.filterChipText, { color: active ? colors.accentText : colors.text }]}>{o.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
+        {options.map((o) => (
+          <Chip
+            key={o.key}
+            label={o.label}
+            active={value === o.key}
+            onPress={() => onSelect(value === o.key ? undefined : o.key)}
+            accessibilityLabel={`${label} ${o.label}`}
+          />
+        ))}
       </ScrollView>
     </View>
   );
@@ -168,20 +161,6 @@ export default function SubjectScreen() {
       return next;
     });
   };
-
-  const emptyView = (
-    icon: keyof typeof Ionicons.glyphMap,
-    title: string,
-    body: string,
-    action?: React.ReactNode,
-  ) => (
-    <View style={styles.empty}>
-      <Ionicons name={icon} size={44} color={colors.textSecondary} />
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.emptyBody, { color: colors.textSecondary }]}>{body}</Text>
-      {action}
-    </View>
-  );
 
   // Unassigned questions
   const unassignedQs = subject.questions.filter((q) => q.topicId === null);
@@ -284,62 +263,31 @@ export default function SubjectScreen() {
         </View>
 
         {/* Tab Segment Bar */}
-        <View style={[styles.seg, { backgroundColor: colors.chip }]}>
-          {TABS.map((t) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => setTab(t)}
-              accessibilityLabel={`${t} tab`}
-              style={[styles.segItem, tab === t && { backgroundColor: colors.card }]}
-            >
-              <Text
-                style={{
-                  color: tab === t ? colors.text : colors.textSecondary,
-                  fontWeight: '700',
-                  fontSize: FontSize.caption,
-                }}
-              >
-                {t}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <Segmented
+          options={TABS.map((t) => ({ key: t, label: t }))}
+          value={tab}
+          onChange={setTab}
+          style={{ marginVertical: Spacing.sm }}
+        />
 
         {/* ─── TAB 1: TOPICS ────────────────────────────────────────── */}
         {tab === 'Topics' && (
           <View style={{ gap: Spacing.md }}>
             {subject.units.length === 0 ? (
-              emptyView(
-                'list-outline',
-                'No syllabus yet',
-                'Add units and topics manually, or import a syllabus to calculate topic weights and prioritize topics.',
-                <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
-                  <TouchableOpacity
-                    style={[
-                      styles.btn,
-                      { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
-                    ]}
-                    onPress={() => router.push('/syllabus-import')}
-                  >
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>
-                      Import syllabus
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, { backgroundColor: colors.accent }]}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/subject/edit',
-                        params: { id: subject.id },
-                      })
-                    }
-                  >
-                    <Text style={{ color: colors.accentText, fontWeight: '700' }}>
-                      Add units
-                    </Text>
-                  </TouchableOpacity>
-                </View>,
-              )
+              <EmptyState
+                icon="list-outline"
+                title="No syllabus yet"
+                body="Add units and topics manually, or import a syllabus to calculate topic weights and prioritize topics."
+                action={
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+                    <Button label="Import syllabus" variant="outline" onPress={() => router.push('/syllabus-import')} />
+                    <Button
+                      label="Add units"
+                      onPress={() => router.push({ pathname: '/subject/edit', params: { id: subject.id } })}
+                    />
+                  </View>
+                }
+              />
             ) : (
               <>
                 {/* Units List */}
@@ -557,16 +505,13 @@ export default function SubjectScreen() {
                   </TouchableOpacity>
                 )}
                 {unassignedQs.length > 0 && (
-                  <TouchableOpacity
-                    style={[styles.btn, { borderColor: colors.accent, borderWidth: 1, opacity: relabelling ? 0.6 : 1 }]}
-                    onPress={relabelUnassigned}
+                  <Button
+                    label={relabelling ? 'Sorting…' : 'Sort unassigned into topics'}
+                    variant="outline"
                     disabled={relabelling}
+                    onPress={relabelUnassigned}
                     accessibilityLabel="Sort unassigned questions into topics"
-                  >
-                    <Text style={{ color: colors.accent, fontWeight: '700' }}>
-                      {relabelling ? 'Sorting…' : 'Sort unassigned into topics'}
-                    </Text>
-                  </TouchableOpacity>
+                  />
                 )}
               </>
             )}
@@ -577,55 +522,32 @@ export default function SubjectScreen() {
         {tab === 'All questions' && (
           <View style={{ gap: Spacing.md }}>
             {subject.questions.length === 0 ? (
-              emptyView(
-                'help-circle-outline',
-                'No questions yet',
-                'Add past exam papers to extract and bank questions.',
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: colors.accent, marginTop: Spacing.sm }]}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/paper-import',
-                      params: { subjectId: subject.id },
-                    })
-                  }
-                >
-                  <Text style={{ color: colors.accentText, fontWeight: '700' }}>
-                    Add past papers
-                  </Text>
-                </TouchableOpacity>,
-              )
+              <EmptyState
+                icon="help-circle-outline"
+                title="No questions yet"
+                body="Add past exam papers to extract and bank questions."
+                action={
+                  <Button
+                    label="Add past papers"
+                    onPress={() => router.push({ pathname: '/paper-import', params: { subjectId: subject.id } })}
+                    style={{ marginTop: Spacing.sm }}
+                  />
+                }
+              />
             ) : (
               <>
                 <View style={{ gap: Spacing.xs }}>
                   <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>SORT BY</Text>
-                  <View style={[styles.sortSegment, { backgroundColor: colors.chip }]}>
-                    {(
-                      [
-                        { key: 'marks', label: 'Marks' },
-                        { key: 'timesAsked', label: 'Times asked' },
-                        { key: 'year', label: 'Year' },
-                        { key: 'unitOrder', label: 'Unit' },
-                      ] as const
-                    ).map((o) => (
-                      <TouchableOpacity
-                        key={o.key}
-                        style={[styles.sortSegmentItem, sortBy === o.key && { backgroundColor: colors.card }]}
-                        onPress={() => setSortBy(o.key)}
-                        accessibilityLabel={`Sort by ${o.label}`}
-                      >
-                        <Text
-                          style={{
-                            fontSize: FontSize.caption,
-                            color: sortBy === o.key ? colors.text : colors.textSecondary,
-                            fontWeight: sortBy === o.key ? '700' : '500',
-                          }}
-                        >
-                          {o.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <Segmented
+                    options={[
+                      { key: 'marks', label: 'Marks' },
+                      { key: 'timesAsked', label: 'Times asked' },
+                      { key: 'year', label: 'Year' },
+                      { key: 'unitOrder', label: 'Unit' },
+                    ]}
+                    value={sortBy}
+                    onChange={setSortBy}
+                  />
                 </View>
 
                 {/* Filters: one labelled row per kind */}
@@ -706,14 +628,11 @@ export default function SubjectScreen() {
                         />
                       ))}
                       {cards.length > visibleCount && (
-                        <TouchableOpacity
-                          style={[styles.btn, { borderColor: colors.border, borderWidth: 1 }]}
+                        <Button
+                          label={`Show ${Math.min(PAGE_SIZE, cards.length - visibleCount)} more`}
+                          variant="outline"
                           onPress={() => setVisibleCount((n) => n + PAGE_SIZE)}
-                        >
-                          <Text style={{ color: colors.accent, fontWeight: '700' }}>
-                            Show {Math.min(PAGE_SIZE, cards.length - visibleCount)} more
-                          </Text>
-                        </TouchableOpacity>
+                        />
                       )}
                     </>
                   );
@@ -727,24 +646,18 @@ export default function SubjectScreen() {
         {tab === 'Papers' && (
           <View style={{ gap: Spacing.md }}>
             {subject.papers.length === 0 ? (
-              emptyView(
-                'document-text-outline',
-                'No papers yet',
-                'Add past university question papers (PDF or photos) to extract and bank questions.',
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: colors.accent, marginTop: Spacing.sm }]}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/paper-import',
-                      params: { subjectId: subject.id },
-                    })
-                  }
-                >
-                  <Text style={{ color: colors.accentText, fontWeight: '700' }}>
-                    Add past papers
-                  </Text>
-                </TouchableOpacity>,
-              )
+              <EmptyState
+                icon="document-text-outline"
+                title="No papers yet"
+                body="Add past university question papers (PDF or photos) to extract and bank questions."
+                action={
+                  <Button
+                    label="Add past papers"
+                    onPress={() => router.push({ pathname: '/paper-import', params: { subjectId: subject.id } })}
+                    style={{ marginTop: Spacing.sm }}
+                  />
+                }
+              />
             ) : (
               <View style={{ gap: Spacing.md }}>
                 <View
@@ -757,26 +670,12 @@ export default function SubjectScreen() {
                   <Text style={[styles.h3, { color: colors.text }]}>
                     Papers ({subject.papers.length})
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.smallBtn, { backgroundColor: colors.accent }]}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/paper-import',
-                        params: { subjectId: subject.id },
-                      })
-                    }
-                  >
-                    <Ionicons name="add" size={16} color={colors.accentText} />
-                    <Text
-                      style={{
-                        color: colors.accentText,
-                        fontWeight: '700',
-                        fontSize: FontSize.caption,
-                      }}
-                    >
-                      Add paper
-                    </Text>
-                  </TouchableOpacity>
+                  <Button
+                    label="Add paper"
+                    compact
+                    icon="add"
+                    onPress={() => router.push({ pathname: '/paper-import', params: { subjectId: subject.id } })}
+                  />
                 </View>
 
                 {subject.papers.map((p) => {
@@ -827,6 +726,8 @@ export default function SubjectScreen() {
                                   await saveSubject(updatedSubject);
                                   deletePaperImages(subject.id, p.id);
                                   setSubject(updatedSubject);
+                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                  toast('Paper deleted');
                                 },
                               },
                             ],
@@ -867,7 +768,7 @@ export default function SubjectScreen() {
             elapsedSec={relabelSec}
             steps={labelSteps(relabelKind, relabelProg)}
             phrases={LABEL_PHRASES}
-            peek={relabelProg.live?.phase === 'thinking' ? relabelProg.live.peek : undefined}
+            peek={relabelProg.live?.peek}
             current={relabelProg.current}
             total={relabelProg.total}
           />
@@ -908,49 +809,6 @@ const styles = StyleSheet.create({
   },
   summaryLine: {
     fontSize: FontSize.caption,
-  },
-  seg: {
-    flexDirection: 'row',
-    borderRadius: BorderRadius.button,
-    padding: 3,
-    marginVertical: Spacing.sm,
-  },
-  segItem: {
-    flex: 1,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: BorderRadius.button - 3,
-  },
-  empty: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.xl * 1.5,
-  },
-  emptyTitle: {
-    fontSize: FontSize.h3,
-    fontWeight: '700',
-  },
-  emptyBody: {
-    textAlign: 'center',
-    fontSize: FontSize.caption,
-    maxWidth: 280,
-  },
-  btn: {
-    minHeight: 48,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.button,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  smallBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 36,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.button,
-    justifyContent: 'center',
   },
   h3: {
     fontSize: FontSize.h3,
@@ -1033,33 +891,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  sortSegment: {
-    flexDirection: 'row',
-    borderRadius: BorderRadius.button,
-    padding: 3,
-  },
-  sortSegmentItem: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: BorderRadius.button - 3,
-  },
   filterHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   clearFilterText: {
-    fontSize: FontSize.caption,
-    fontWeight: '600',
-  },
-  filterChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.chip,
-    borderWidth: 1,
-  },
-  filterChipText: {
     fontSize: FontSize.caption,
     fontWeight: '600',
   },

@@ -18,8 +18,6 @@ export type SyllabusJob = {
   startedAt: number;
   endedAt: number;
   progress: SyllabusImportProgress;
-  /** True once Gemma's first answer was unreadable and we asked again (shows the extra step) */
-  retried: boolean;
   source?: SyllabusSource;
   result?: RawSyllabusSubject[];
   error?: string;
@@ -32,7 +30,7 @@ const START: SyllabusImportProgress = {
   total: 1,
   message: 'Getting your syllabus ready...',
 };
-const IDLE: SyllabusJob = { status: 'idle', startedAt: 0, endedAt: 0, progress: START, retried: false };
+const IDLE: SyllabusJob = { status: 'idle', startedAt: 0, endedAt: 0, progress: START };
 
 let job: SyllabusJob = IDLE;
 const listeners = new Set<() => void>();
@@ -70,7 +68,6 @@ export async function startSyllabusJob(
     status: 'running',
     startedAt: Date.now(),
     progress: START,
-    retried: false,
     source,
     result: undefined,
     error: undefined,
@@ -86,7 +83,7 @@ export async function startSyllabusJob(
       modelId: api.modelId,
       pdfWorker: source.type === 'pdf' ? await getWorker?.() : undefined,
       onProgress: (p) => {
-        set({ progress: p, retried: job.retried || p.stage === 'retrying' });
+        set({ progress: p });
         showProgress('Reading syllabus', p.message);
       },
     });

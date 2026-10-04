@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
+import type { SyllabusImportProgress } from '../ai/importSyllabus';
 
 export type ProgressStep = { label: string; state: 'done' | 'current' | 'pending'; detail?: string };
 
@@ -11,10 +12,8 @@ type Props = {
   steps?: ProgressStep[];
   /** Fun rotating lines under the title (shuffled, a new one every few seconds) */
   phrases?: string[];
-  /** Tail of the model's own thinking, shown live in a box */
+  /** Tail of the model's own thinking. While it streams, it takes the place of the rotating phrases. */
   peek?: string;
-  /** Heading above the live text, e.g. "AI is writing". */
-  peekLabel?: string;
   /** Tells the user they can leave this screen while the import keeps running */
   canLeave?: boolean;
   current?: number;
@@ -124,6 +123,22 @@ export function paperSteps(stage: 'reading' | 'extracting' | 'done', p: Pos): Pr
   return stepsAt(['Prepare pages', 'Read pages', 'Check & organise'], cur, cur === 1 ? detail : undefined);
 }
 
+/** Steps while a syllabus is read: prepare pages, one AI call (or one per page), then check. */
+export function syllabusSteps(p: SyllabusImportProgress): ProgressStep[] {
+  const { live, stage, current, total } = p;
+  const found = live?.found;
+  const liveText = !live
+    ? undefined
+    : live.phase === 'thinking'
+      ? 'AI is thinking'
+      : found && (found.units || found.topics)
+        ? `${found.units} unit${found.units === 1 ? '' : 's'} · ${found.topics} topic${found.topics === 1 ? '' : 's'} so far`
+        : 'Writing the result';
+  const parts = [total > 1 ? `Page ${current} of ${total}` : undefined, stage === 'retrying' ? 'Answer was messy, asking again' : liveText];
+  const cur = stage === 'reading' ? 0 : stage === 'merging' ? 2 : 1;
+  return stepsAt(['Prepare pages', 'Read syllabus', 'Check & organise'], cur, parts.filter(Boolean).join(' · ') || undefined);
+}
+
 /** Steps while questions are matched to topics, then grouped into repeats. */
 export function labelSteps(kind: 'labels' | 'repeats', p: Pos): ProgressStep[] {
   const live = liveDetail(p.live, kind === 'labels' ? 'label' : 'group');
@@ -148,7 +163,6 @@ export function ImportProgress({
   steps,
   phrases,
   peek,
-  peekLabel = 'AI is thinking',
   canLeave,
   current = 0,
   total = 0,
@@ -215,11 +229,17 @@ export function ImportProgress({
       </View>
 
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-      {order.length > 0 && (
+      {/* The model's live thinking when we have it, otherwise the rotating phrases. Same slot, same height. */}
+      {peek ? (
+        // ellipsizeMode head keeps the newest words visible as the text grows
+        <Text style={[styles.phrase, { color: colors.textSecondary }]} numberOfLines={2} ellipsizeMode="head">
+          {peek}
+        </Text>
+      ) : order.length > 0 ? (
         <Animated.Text style={[styles.phrase, { color: colors.textSecondary, opacity: fade }]}>
           {order[phraseIdx]}
         </Animated.Text>
-      )}
+      ) : null}
       <Text
         style={[styles.elapsed, { color: colors.textSecondary }]}
         accessibilityLabel={`${elapsedSec} seconds elapsed`}
@@ -275,16 +295,6 @@ export function ImportProgress({
         </View>
       )}
 
-      {peek ? (
-        <View style={[styles.peekBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.peekLabel, { color: colors.accent }]}>{peekLabel}</Text>
-          {/* ellipsizeMode head keeps the newest words visible as the text grows */}
-          <Text style={[styles.peek, { color: colors.textSecondary }]} numberOfLines={2} ellipsizeMode="head">
-            {peek}
-          </Text>
-        </View>
-      ) : null}
-
       {canLeave && (
         <View style={[styles.hint, { backgroundColor: colors.accent + '15', borderColor: colors.accent }]}>
           <Ionicons name="information-circle-outline" size={20} color={colors.accent} />
@@ -312,7 +322,7 @@ const styles = StyleSheet.create({
   // Sits at the top of the page box; translateY moves it down and back
   scanLine: { position: 'absolute', top: 6, left: 8, right: 8, height: 3, borderRadius: 2 },
   title: { fontSize: FontSize.h3, fontWeight: '700', textAlign: 'center' },
-  phrase: { fontSize: FontSize.body, textAlign: 'center', minHeight: 22 },
+  phrase: { fontSize: FontSize.body, textAlign: 'center', minHeight: 44, lineHeight: 22 },
   elapsed: { fontSize: FontSize.caption, fontVariant: ['tabular-nums'] },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, width: '100%' },
   track: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
@@ -329,15 +339,6 @@ const styles = StyleSheet.create({
   dotBox: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 10, height: 10, borderRadius: 5 },
   detail: { fontSize: FontSize.caption, marginTop: 2 },
-  peekBox: {
-    alignSelf: 'stretch',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    gap: Spacing.xs,
-  },
-  peekLabel: { fontSize: FontSize.tiny, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
-  peek: { fontSize: FontSize.caption, lineHeight: 18 },
   hint: {
     flexDirection: 'row',
     gap: Spacing.sm,

@@ -16,16 +16,20 @@ import { validators, ValidationResult } from './validators';
 export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
 
 /** What a progress screen shows about a live stream: the phase, the tail of the reasoning, an item count. */
-export type StreamProgress = { phase: 'thinking' | 'writing'; peek?: string; found?: number };
+export type StreamProgress<F = number> = { phase: 'thinking' | 'writing'; peek?: string; found?: F };
 
 /** How much of the model's latest reasoning the progress screens show. */
 export const PEEK_CHARS = 140;
 
+/** Counts matches of a pattern in the partial JSON answer (e.g. /"number"\s*:/g for questions). */
+export const countMatches = (re: RegExp) => (text: string) => (text.match(re) || []).length;
+
 /**
  * Turns the raw stream into StreamProgress updates (at most one per 500 ms).
- * `countRe` counts items in the partial JSON answer (e.g. /"number"\s*:/g for questions).
+ * `count` works out what has been found so far from the partial JSON answer.
+ * Only the reasoning is shown as `peek`: the answer itself is raw JSON.
  */
-export function streamProgress(emit: (p: StreamProgress) => void, countRe?: RegExp) {
+export function streamProgress<F = number>(emit: (p: StreamProgress<F>) => void, count?: (text: string) => F) {
   let last = 0;
   return (e: StreamEvent) => {
     const now = Date.now();
@@ -34,11 +38,7 @@ export function streamProgress(emit: (p: StreamProgress) => void, countRe?: RegE
     if (e.phase === 'thinking') {
       emit({ phase: 'thinking', peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS) });
     } else {
-      emit({
-        phase: 'writing',
-        peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS),
-        found: countRe ? (e.text.match(countRe) || []).length : undefined,
-      });
+      emit({ phase: 'writing', found: count?.(e.text) });
     }
   };
 }

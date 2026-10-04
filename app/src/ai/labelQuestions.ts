@@ -7,7 +7,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON, streamProgress, StreamProgress } from './client';
+import { generateJSON, streamProgress, StreamProgress, countMatches } from './client';
 import { topicLabelsPrompt } from './prompts';
 import { validateTopicLabels, RawTopicLabel, TopicLabelsResponse } from './validators';
 import { Subject, Question, Unit } from '../logic/subject';
@@ -143,7 +143,7 @@ export async function labelQuestions(
         temperature: 1, // 0 lets Gemma loop on "re-checking" (same as the syllabus call)
         onStream: streamProgress(
           (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
-          /"q"\s*:/g,
+          countMatches(/"q"\s*:/g),
         ),
       });
 

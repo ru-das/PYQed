@@ -7,7 +7,7 @@
 
 import { Provider } from '../config';
 import { getPrefs } from '../prefs';
-import { generateJSON, GenerateJSONResult, StreamEvent, streamProgress, StreamProgress } from './client';
+import { generateJSON, GenerateJSONResult, StreamEvent, streamProgress, StreamProgress, countMatches } from './client';
 import { pageToQuestionsPrompt } from './prompts';
 import {
   ExtractedPaperMetadata,
@@ -40,7 +40,7 @@ export type PaperImportProgress = {
 };
 
 /** Counts questions in the partial JSON answer */
-const QUESTION_COUNT_RE = /"number"\s*:/g;
+const countQuestions = countMatches(/"number"\s*:/g);
 
 /** Handler for extractPage that reports the model's live stream as PaperImportProgress */
 export function pageStreamHandler(
@@ -50,7 +50,7 @@ export function pageStreamHandler(
 ) {
   return streamProgress(
     (live) => onProgress?.({ stage: 'extracting', current, total, message: `Reading page ${current} of ${total}...`, live }),
-    QUESTION_COUNT_RE,
+    countQuestions,
   );
 }
 

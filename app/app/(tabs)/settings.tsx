@@ -6,14 +6,13 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   Linking,
-  Alert,
   Switch,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { Logo } from '../../src/components/Logo';
 import { ProviderSelect } from '../../src/components/ProviderSelect';
+import { Button, Chip } from '../../src/components/ui';
 import * as Haptics from '../../src/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -45,37 +44,24 @@ function SectionTitle({ icon, text }: { icon: IconName; text: string }) {
   );
 }
 
-/** A row of mutually exclusive options, styled like the model chips. */
+/** A row of mutually exclusive options. */
 function Choice<T extends string | number | boolean>({ value, options, onChange }: {
   value: T;
   options: { value: T; label: string; icon?: IconName }[];
   onChange: (v: T) => void;
 }) {
-  const colors = useThemeColors();
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.xs }}>
-      {options.map((o) => {
-        const on = o.value === value;
-        return (
-          <TouchableOpacity
-            key={String(o.value)}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(o.value); }}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: on }}
-            accessibilityLabel={o.label}
-            style={{
-              minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14,
-              borderRadius: BorderRadius.chip, borderWidth: 1,
-              backgroundColor: colors.card, borderColor: on ? colors.accent : colors.border,
-            }}
-          >
-            {o.icon && <Ionicons name={o.icon} size={16} color={on ? colors.accent : colors.textSecondary} />}
-            <Text style={{ fontSize: FontSize.caption + 1, fontWeight: '600', color: on ? colors.accent : colors.textSecondary }}>
-              {o.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+      {options.map((o) => (
+        <Chip
+          key={String(o.value)}
+          label={o.label}
+          icon={o.icon}
+          active={o.value === value}
+          accessibilityRole="radio"
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChange(o.value); }}
+        />
+      ))}
     </View>
   );
 }
@@ -138,18 +124,13 @@ export default function SettingsScreen() {
     if (text.trim()) updateApiSettings({ modelId: text }).catch(() => {});
   };
 
+  // OpenAI-compatible servers may be keyless, but need a base URL and a model ID
+  const canTest =
+    provider === 'openai' ? baseUrl.trim().length > 0 && modelId.trim().length > 0 : apiKey.trim().length > 0;
+
   // Test API key
   const handleTestKey = async () => {
-    // OpenAI-compatible servers may be keyless, but need a base URL and a model
-    if (provider === 'openai') {
-      if (!baseUrl.trim() || !modelId.trim()) {
-        Alert.alert('Details needed', 'Enter the base URL and model ID to test.');
-        return;
-      }
-    } else if (!apiKey.trim()) {
-      Alert.alert('API Key Required', 'Please enter an API key to test.');
-      return;
-    }
+    if (!canTest) return;
 
     setIsTesting(true);
     setTestResult(null);
@@ -195,13 +176,7 @@ export default function SettingsScreen() {
     return '••••••••••••' + key.slice(-4);
   };
 
-  if (isLoading) {
-    return (
-      <View style={[styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
+  if (isLoading) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
 
   return (
     <ScrollView
@@ -326,55 +301,8 @@ export default function SettingsScreen() {
 
         {provider === 'aistudio' && (
           <View style={styles.quickModelRow}>
-            <TouchableOpacity
-              style={[
-                styles.quickChip,
-                { backgroundColor: colors.card, borderColor: colors.border },
-                modelId === DEFAULT_MODEL_AISTUDIO && {
-                  borderColor: colors.accent,
-                },
-              ]}
-              onPress={() => handleSaveModel(DEFAULT_MODEL_AISTUDIO)}
-            >
-              <Text
-                style={[
-                  styles.quickChipText,
-                  {
-                    color:
-                      modelId === DEFAULT_MODEL_AISTUDIO
-                        ? colors.accent
-                        : colors.textSecondary,
-                  },
-                ]}
-              >
-                26B MoE (default)
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.quickChip,
-                { backgroundColor: colors.card, borderColor: colors.border },
-                modelId === ALT_MODEL_AISTUDIO && {
-                  borderColor: colors.accent,
-                },
-              ]}
-              onPress={() => handleSaveModel(ALT_MODEL_AISTUDIO)}
-            >
-              <Text
-                style={[
-                  styles.quickChipText,
-                  {
-                    color:
-                      modelId === ALT_MODEL_AISTUDIO
-                        ? colors.accent
-                        : colors.textSecondary,
-                  },
-                ]}
-              >
-                31B Dense (larger)
-              </Text>
-            </TouchableOpacity>
+            <Chip label="26B MoE (default)" active={modelId === DEFAULT_MODEL_AISTUDIO} onPress={() => handleSaveModel(DEFAULT_MODEL_AISTUDIO)} />
+            <Chip label="31B Dense (larger)" active={modelId === ALT_MODEL_AISTUDIO} onPress={() => handleSaveModel(ALT_MODEL_AISTUDIO)} />
           </View>
         )}
       </View>
@@ -400,31 +328,15 @@ export default function SettingsScreen() {
       </View>
 
       {/* Test Key Button */}
-      <TouchableOpacity
-        style={[
-          styles.actionBtn,
-          { backgroundColor: colors.accent },
-          isTesting && { opacity: 0.7 },
-        ]}
+      <Button
+        label="Test Key"
+        variant="outline"
+        icon="checkmark-circle-outline"
+        loading={isTesting}
+        disabled={!canTest}
         onPress={handleTestKey}
-        disabled={isTesting}
         accessibilityLabel="Test API Key"
-      >
-        {isTesting ? (
-          <ActivityIndicator color={colors.accentText} size="small" />
-        ) : (
-          <>
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={20}
-              color={colors.accentText}
-            />
-            <Text style={[styles.actionBtnText, { color: colors.accentText }]}>
-              Test Key
-            </Text>
-          </>
-        )}
-      </TouchableOpacity>
+      />
 
       {/* Test Result Message */}
       {testResult && (
@@ -546,11 +458,6 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: Spacing.lg,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   section: {
     gap: Spacing.xs,
   },
@@ -592,28 +499,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginTop: Spacing.xs,
-  },
-  quickChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: BorderRadius.chip,
-    borderWidth: 1,
-  },
-  quickChipText: {
-    fontSize: FontSize.caption,
-    fontWeight: '500',
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: 14,
-    borderRadius: BorderRadius.button,
-  },
-  actionBtnText: {
-    fontSize: FontSize.body,
-    fontWeight: '600',
   },
   resultBanner: {
     flexDirection: 'row',

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import { Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Provider, PROVIDER_LABELS } from '../config';
+import { Sheet } from './ui';
 
 const PROVIDERS = Object.keys(PROVIDER_LABELS) as Provider[];
 
@@ -28,35 +29,31 @@ export function ProviderSelect({ value, onChange }: Props) {
         <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
       </TouchableOpacity>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.overlay} onPress={() => setOpen(false)}>
-          <View style={[styles.menu, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {PROVIDERS.map((p) => (
-              <TouchableOpacity
-                key={p}
-                style={styles.row}
-                onPress={() => {
-                  setOpen(false);
-                  if (p !== value) onChange(p);
-                }}
-                accessibilityRole="menuitem"
-                accessibilityLabel={PROVIDER_LABELS[p]}
-              >
-                <Text
-                  style={[
-                    styles.rowText,
-                    { color: p === value ? colors.accent : colors.text },
-                    p === value && { fontWeight: '700' },
-                  ]}
-                >
-                  {PROVIDER_LABELS[p]}
-                </Text>
-                {p === value && <Ionicons name="checkmark" size={20} color={colors.accent} />}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
+      <Sheet visible={open} title="AI provider" onClose={() => setOpen(false)}>
+        {PROVIDERS.map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={styles.row}
+            onPress={() => {
+              setOpen(false);
+              if (p !== value) onChange(p);
+            }}
+            accessibilityRole="menuitem"
+            accessibilityLabel={PROVIDER_LABELS[p]}
+          >
+            <Text
+              style={[
+                styles.rowText,
+                { color: p === value ? colors.accent : colors.text },
+                p === value && { fontWeight: '700' },
+              ]}
+            >
+              {PROVIDER_LABELS[p]}
+            </Text>
+            {p === value && <Ionicons name="checkmark" size={20} color={colors.accent} />}
+          </TouchableOpacity>
+        ))}
+      </Sheet>
     </>
   );
 }
@@ -75,17 +72,6 @@ const styles = StyleSheet.create({
   fieldText: {
     fontSize: FontSize.body,
     fontWeight: '600',
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: Spacing.lg,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  menu: {
-    borderRadius: BorderRadius.card,
-    borderWidth: 1,
-    overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',

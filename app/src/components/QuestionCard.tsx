@@ -6,28 +6,43 @@ import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 import { displayNumber, Question } from '../logic/subject';
 import { askedYears, timesAsked, GroupIndex } from '../logic/ranking';
 
+/** What the card needs from a question: a saved Question fits, and so does a draft in Paper review. */
+export type CardQuestion = Pick<Question, 'id' | 'number' | 'text' | 'type' | 'needsReview'> & {
+  marks: number | null;
+  group?: string;
+  year?: number | null;
+  topicConfidence?: Question['topicConfidence'];
+  editedByUser?: boolean;
+};
+
 type Props = {
-  q: Question;
+  q: CardQuestion;
   /** Other wordings from the same repeat group (q is the most recent). */
-  versions: Question[];
-  all: Question[];
-  groups: GroupIndex;
+  versions?: Question[];
+  /** The subject's questions and repeat groups, to work out "Asked 3×". Omit for a draft. */
+  all?: Question[];
+  groups?: GroupIndex;
   /** Topic name to show in the footer; null shows "Unassigned". Omit to hide the footer chip. */
   topicName?: string | null;
   showTopic?: boolean;
   /** Tapping the card runs this (e.g. open the topic). Without it, long text expands in place. */
   onPress?: () => void;
-  /** Shows a "more" button (Move / Edit / Delete). */
-  onMenu?: () => void;
+  /** Icon buttons in the card header. Each shows only when its handler is given. */
+  onMove?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  /** Review screens: spell out what is wrong (marks missing, very short text) */
+  warnings?: boolean;
 };
 
-/** One question card, shared by the All questions tab and the Topic view. */
-export function QuestionCard({ q, versions, all, groups, topicName, showTopic, onPress, onMenu }: Props) {
+/** The one question card: All questions, Topic view, Paper review and the import review. */
+export function QuestionCard({ q, versions = [], all, groups, topicName, showTopic, onPress, onMove, onEdit, onDelete, warnings }: Props) {
   const colors = useThemeColors();
   const [expanded, setExpanded] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
-  const times = timesAsked(q, all, groups);
-  const years = askedYears(q, all, groups);
+  // Without the subject's questions (a draft) nothing can repeat: asked once, no year list
+  const times = all ? timesAsked(q as Question, all, groups) : 1;
+  const years = all ? askedYears(q as Question, all, groups) : [];
 
   const chip = (text: string, fg: string, bg: string, border?: string) => (
     <View style={[styles.badge, { backgroundColor: bg }, border ? { borderColor: border, borderWidth: 1 } : null]}>
@@ -35,11 +50,25 @@ export function QuestionCard({ q, versions, all, groups, topicName, showTopic, o
     </View>
   );
 
+  // Long-press names an icon button, since the icons have no text
+  const iconBtn = (name: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void, color: string) => (
+    <TouchableOpacity key={name} onPress={onPress} onLongPress={() => toast(label, 'info')} style={styles.iconBtn} accessibilityLabel={label}>
+      <Ionicons name={name} size={18} color={color} />
+    </TouchableOpacity>
+  );
+
+  const warning = (icon: keyof typeof Ionicons.glyphMap, text: string) => (
+    <View style={styles.warningLine}>
+      <Ionicons name={icon} size={14} color={colors.amber} />
+      <Text style={{ color: colors.amber, fontSize: FontSize.caption, flex: 1 }}>{text}</Text>
+    </View>
+  );
+
   const body = (
     <>
       <View style={styles.header}>
         <View style={styles.chips}>
-          {chip(displayNumber(q.number), colors.text, colors.chip)}
+          {chip(q.number.trim() ? displayNumber(q.number) : '—', colors.text, colors.chip)}
           {q.marks !== null
             ? chip(`${q.marks} marks`, colors.text, colors.surface, colors.border)
             : chip('? marks', colors.amber, colors.amberBg)}
@@ -49,14 +78,18 @@ export function QuestionCard({ q, versions, all, groups, topicName, showTopic, o
           {times <= 1 && q.year ? chip(String(q.year), colors.textSecondary, colors.chip) : null}
           {q.topicConfidence === 'low' && !q.editedByUser && chip('Low confidence', colors.amber, colors.amberBg)}
         </View>
-        {onMenu ? (
-          <TouchableOpacity onPress={onMenu} style={styles.menuBtn} onLongPress={() => toast('Question options', 'info')} accessibilityLabel="Question options">
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
-        ) : onPress ? (
-          <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-        ) : null}
+        <View style={styles.actions}>
+          {onMove && iconBtn('folder-open-outline', 'Move to topic', onMove, colors.textSecondary)}
+          {onEdit && iconBtn('pencil-outline', 'Edit question', onEdit, colors.textSecondary)}
+          {onDelete && iconBtn('trash-outline', 'Delete question', onDelete, colors.red)}
+          {!onMove && !onEdit && !onDelete && onPress ? (
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          ) : null}
+        </View>
       </View>
+
+      {warnings && q.marks === null && warning('alert-circle-outline', 'Marks not printed. Enter marks if known or leave blank.')}
+      {warnings && q.text.trim().length > 0 && q.text.trim().length < 10 && warning('information-circle-outline', 'Question text is very short. Check scan.')}
 
       <Text style={[styles.text, { color: colors.text }]} numberOfLines={expanded ? undefined : 3}>
         {q.text}
@@ -119,7 +152,9 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.xs, flex: 1 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.chip },
   badgeText: { fontSize: FontSize.tiny + 1, fontWeight: '700' },
-  menuBtn: { width: 44, height: 44, marginTop: -10, marginRight: -10, alignItems: 'center', justifyContent: 'center' },
+  actions: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: { width: 44, height: 44, marginTop: -10, marginBottom: -10, alignItems: 'center', justifyContent: 'center' },
+  warningLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   text: { fontSize: FontSize.body - 1, lineHeight: 22 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   topicChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: BorderRadius.chip, maxWidth: '70%' },
