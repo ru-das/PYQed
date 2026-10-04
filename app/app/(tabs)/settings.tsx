@@ -14,7 +14,7 @@ import { Logo } from '../../src/components/Logo';
 import { ProviderSelect } from '../../src/components/ProviderSelect';
 import { Button, Chip } from '../../src/components/ui';
 import * as Haptics from '../../src/haptics';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   useThemeColors,
   Spacing,
@@ -407,11 +407,15 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <SectionTitle icon="options-outline" text="FEEDBACK" />
         {([
-          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.', 'pulse-outline'],
+          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.', 'vibrate'],
           ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.', 'notifications-outline'],
         ] as const).map(([key, label, hint, icon]) => (
           <View key={key} style={[styles.rowBetween, { marginTop: Spacing.xs }]}>
-            <Ionicons name={icon} size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
+            {key === 'haptics' ? (
+              <MaterialCommunityIcons name="vibrate" size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
+            ) : (
+              <Ionicons name={icon as 'notifications-outline'} size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
+            )}
             <View style={{ flex: 1, paddingRight: Spacing.md }}>
               <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '600' }}>{label}</Text>
               <Text style={[styles.helperText, { color: colors.textSecondary, marginTop: 0 }]}>{hint}</Text>
