@@ -26,6 +26,7 @@ import {
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
+import { Button, Footer } from '../src/components/ui';
 import { ImportProgress, SYLLABUS_PHRASES, syllabusSteps } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
 import { UnitsEditor } from '../src/components/UnitsEditor';
@@ -522,21 +523,12 @@ export default function SyllabusImportScreen() {
                   multiline
                   numberOfLines={8}
                 />
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
+                <Button
+                  label="Analyze Text"
+                  icon="checkmark"
                   onPress={handleDonePasting}
                   accessibilityLabel="Analyze Pasted Text"
-                >
-                  <Ionicons name="checkmark" size={18} color={colors.accentText} />
-                  <Text
-                    style={[
-                      styles.primaryBtnText,
-                      { color: colors.accentText },
-                    ]}
-                  >
-                    Analyze Text
-                  </Text>
-                </TouchableOpacity>
+                />
               </View>
             )}
           </View>
@@ -578,22 +570,18 @@ export default function SyllabusImportScreen() {
                 </Text>
               )}
               <View style={styles.errorBtnRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.outlineBtn,
-                    { borderColor: colors.border, backgroundColor: colors.surface },
-                  ]}
+                <Button
+                  label="Choose another file"
+                  variant="outline"
+                  style={{ flex: 1 }}
                   onPress={() => {
                     clearSyllabusJob();
                     setStep('picker');
                   }}
-                >
-                  <Text style={{ color: colors.text, fontWeight: '600' }}>
-                    Choose another file
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
+                />
+                <Button
+                  label="Try Again"
+                  style={{ flex: 1 }}
                   onPress={() => {
                     const src = job.source ?? pendingSourceRef.current;
                     if (src) {
@@ -603,13 +591,7 @@ export default function SyllabusImportScreen() {
                       setStep('picker');
                     }
                   }}
-                >
-                  <Text
-                    style={[styles.primaryBtnText, { color: colors.accentText }]}
-                  >
-                    Try Again
-                  </Text>
-                </TouchableOpacity>
+                />
               </View>
             </View>
           ) : (
@@ -772,64 +754,23 @@ export default function SyllabusImportScreen() {
             ))}
 
             {/* Add Subject button */}
-            <TouchableOpacity
-              style={[
-                styles.addSubjectBtn,
-                { borderColor: colors.border, backgroundColor: colors.card },
-              ]}
+            <Button
+              label="Add another subject"
+              variant="outline"
+              icon="add-circle-outline"
               onPress={addSubject}
-              accessibilityLabel="Add another subject"
-            >
-              <Ionicons
-                name="add-circle-outline"
-                size={22}
-                color={colors.accent}
-              />
-              <Text
-                style={{
-                  color: colors.accent,
-                  fontWeight: '700',
-                  fontSize: FontSize.body - 1,
-                }}
-              >
-                Add another subject
-              </Text>
-            </TouchableOpacity>
+            />
           </ScrollView>
 
-          {/* Sticky Bottom Bar */}
-          <View
-            style={[
-              styles.bottomBar,
-              { backgroundColor: colors.surface, borderTopColor: colors.border },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.createBtn,
-                { backgroundColor: colors.accent },
-                selectedSubjects.length === 0 && { opacity: 0.5 },
-              ]}
-              onPress={handleCreateSubjects}
+          <Footer>
+            <Button
+              label={`Create ${selectedSubjects.length} Subject${selectedSubjects.length === 1 ? '' : 's'}`}
+              icon="checkmark-circle"
               disabled={selectedSubjects.length === 0}
+              onPress={handleCreateSubjects}
               accessibilityLabel="Create subjects"
-            >
-              <Ionicons
-                name="checkmark-circle"
-                size={22}
-                color={colors.accentText}
-              />
-              <Text
-                style={[
-                  styles.createBtnText,
-                  { color: colors.accentText },
-                ]}
-              >
-                Create {selectedSubjects.length} Subject
-                {selectedSubjects.length === 1 ? '' : 's'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+            />
+          </Footer>
         </View>
       )}
     </View>
@@ -894,19 +835,6 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  primaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    minHeight: 48,
-    borderRadius: BorderRadius.button,
-    paddingHorizontal: Spacing.md,
-  },
-  primaryBtnText: {
-    fontSize: FontSize.body - 1,
-    fontWeight: '700',
-  },
   centerContent: {
     flex: 1,
     alignItems: 'center',
@@ -929,14 +857,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
     marginTop: Spacing.md,
-  },
-  outlineBtn: {
-    paddingHorizontal: Spacing.md,
-    minHeight: 44,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   reviewContent: {
     padding: Spacing.md,
@@ -1006,36 +926,5 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  addSubjectBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    minHeight: 48,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    marginTop: Spacing.xs,
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-    padding: Spacing.md,
-  },
-  createBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    minHeight: 50,
-    borderRadius: BorderRadius.button,
-  },
-  createBtnText: {
-    fontSize: FontSize.body,
-    fontWeight: '700',
   },
 });

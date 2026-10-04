@@ -6,6 +6,7 @@ import * as Haptics from '../../src/haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
 import { getSubject, saveSubject, Subject, Question } from '../../src/store/subjects';
 import { QuestionFilters, askedYears, highPriorityUnitIds } from '../../src/logic/ranking';
+import { Button, Chip, Footer } from '../../src/components/ui';
 import { practicePool, weightedShuffle, recordAnswer, topicProgress, UNASSIGNED } from '../../src/logic/practice';
 
 const TYPES: Question['type'][] = ['mcq', 'short', 'long', 'other'];
@@ -99,16 +100,7 @@ export default function PracticeScreen() {
   };
 
   const chip = (label: string, active: boolean, onPress: () => void) => (
-    <TouchableOpacity
-      key={label}
-      onPress={onPress}
-      accessibilityLabel={`Filter ${label}`}
-      style={[styles.chip, { backgroundColor: active ? colors.accent : colors.chip }]}
-    >
-      <Text style={{ color: active ? colors.accentText : colors.text, fontSize: FontSize.caption, fontWeight: '600' }}>
-        {label}
-      </Text>
-    </TouchableOpacity>
+    <Chip key={label} label={label} active={active} onPress={onPress} accessibilityLabel={`Filter ${label}`} />
   );
 
   // ─── Cards ───
@@ -171,19 +163,9 @@ export default function PracticeScreen() {
           Got it {tally.got} · Revise {tally.revise}
         </Text>
         {revised.length > 0 && (
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: colors.amber }]}
-            onPress={() => start(revised)}
-          >
-            <Text style={{ color: colors.accentText, fontWeight: '700' }}>Practise the Revise ones again</Text>
-          </TouchableOpacity>
+          <Button label="Practise the Revise ones again" variant="outline" onPress={() => start(revised)} />
         )}
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: colors.accent }]}
-          onPress={() => router.back()}
-        >
-          <Text style={{ color: colors.accentText, fontWeight: '700' }}>Done</Text>
-        </TouchableOpacity>
+        <Button label="Done" onPress={() => router.back()} />
       </View>
     );
   }
@@ -191,7 +173,7 @@ export default function PracticeScreen() {
   // ─── Setup ───
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md }}>
         <View style={[styles.row, { justifyContent: 'space-between' }]}>
           <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '600' }}>High priority only</Text>
           <Switch value={hpOnly} onValueChange={setHpOnly} trackColor={{ true: colors.accent }} />
@@ -268,17 +250,9 @@ export default function PracticeScreen() {
         )}
       </ScrollView>
 
-      <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          disabled={pool.length === 0}
-          onPress={() => start(pool)}
-          style={[styles.btn, { backgroundColor: colors.accent, opacity: pool.length === 0 ? 0.4 : 1 }]}
-        >
-          <Text style={{ color: colors.accentText, fontWeight: '700', fontSize: FontSize.body }}>
-            Start ({pool.length} cards)
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <Footer>
+        <Button label={`Start (${pool.length} cards)`} disabled={pool.length === 0} onPress={() => start(pool)} />
+      </Footer>
     </View>
   );
 }
@@ -308,12 +282,4 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.button,
     borderWidth: 1,
   },
-  btn: {
-    minHeight: 48,
-    paddingHorizontal: Spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: BorderRadius.button,
-  },
-  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: Spacing.md, borderTopWidth: 1 },
 });

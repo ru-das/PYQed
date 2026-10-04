@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from '../../src/haptics';
-import { Ionicons } from '@expo/vector-icons';
 import { toast } from '../../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
-import { deleteSubject, emptySubject, getSubject, newId, saveSubject, Subject, Unit } from '../../src/store/subjects';
+import { deleteSubject, emptySubject, getSubject, saveSubject, Subject, Unit } from '../../src/store/subjects';
 import { UnitsEditor } from '../../src/components/UnitsEditor';
+import { Button, Footer } from '../../src/components/ui';
 
 export default function EditSubject() {
   const colors = useThemeColors();
@@ -72,34 +72,31 @@ export default function EditSubject() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: colors.background }} contentContainerStyle={styles.pad} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title: id ? 'Edit subject' : 'New subject' }} />
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView contentContainerStyle={styles.pad} keyboardShouldPersistTaps="handled">
+        <Stack.Screen options={{ title: id ? 'Edit subject' : 'New subject' }} />
 
-      <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
-      <TextInput style={inputStyle} value={name} onChangeText={setName} placeholder="e.g. Data Structures" placeholderTextColor={colors.textSecondary} />
-      <Text style={[styles.label, { color: colors.textSecondary }]}>Code (optional)</Text>
-      <TextInput style={inputStyle} value={code} onChangeText={setCode} placeholder="e.g. CS201" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" />
+        <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
+        <TextInput style={inputStyle} value={name} onChangeText={setName} placeholder="e.g. Data Structures" placeholderTextColor={colors.textSecondary} />
+        <Text style={[styles.label, { color: colors.textSecondary }]}>Code (optional)</Text>
+        <TextInput style={inputStyle} value={code} onChangeText={setCode} placeholder="e.g. CS201" placeholderTextColor={colors.textSecondary} autoCapitalize="characters" />
 
-      <Text style={[styles.h2, { color: colors.text }]}>Units & topics</Text>
+        <Text style={[styles.h2, { color: colors.text }]}>Units & topics</Text>
 
-      <UnitsEditor
-        units={units}
-        onChange={setUnits}
-        confirmRemove={(kind, rid, remove) =>
-          confirmDelete(kind, usedCount((q) => (kind === 'unit' ? q.unitId : q.topicId) === rid), remove)
-        }
-      />
+        <UnitsEditor
+          units={units}
+          onChange={setUnits}
+          confirmRemove={(kind, rid, remove) =>
+            confirmDelete(kind, usedCount((q) => (kind === 'unit' ? q.unitId : q.topicId) === rid), remove)
+          }
+        />
 
-      <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginTop: Spacing.lg }]} onPress={save} accessibilityLabel="Save subject">
-        <Text style={{ color: colors.accentText, fontWeight: '700', fontSize: FontSize.body }}>Save</Text>
-      </TouchableOpacity>
-
-      {!!id && (
-        <TouchableOpacity style={[styles.btn, { backgroundColor: colors.redBg }]} onPress={removeSubject} accessibilityLabel="Delete subject">
-          <Text style={{ color: colors.red, fontWeight: '700' }}>Delete subject</Text>
-        </TouchableOpacity>
-      )}
-    </ScrollView>
+        {!!id && <Button label="Delete subject" variant="danger" onPress={removeSubject} style={{ marginTop: Spacing.lg }} />}
+      </ScrollView>
+      <Footer>
+        <Button label="Save" onPress={save} accessibilityLabel="Save subject" />
+      </Footer>
+    </View>
   );
 }
 
@@ -108,5 +105,4 @@ const styles = StyleSheet.create({
   label: { fontSize: FontSize.caption, fontWeight: '600', marginTop: Spacing.xs },
   h2: { fontSize: FontSize.h2, fontWeight: '700', marginTop: Spacing.md },
   input: { minHeight: 44, borderWidth: 1, borderRadius: BorderRadius.input, paddingHorizontal: Spacing.sm, fontSize: FontSize.body },
-  btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 48, borderRadius: BorderRadius.button, marginTop: Spacing.sm },
 });
