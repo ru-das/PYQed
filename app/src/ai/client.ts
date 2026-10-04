@@ -98,6 +98,8 @@ export type GenerateJSONResult<T = unknown> =
       cutOff?: boolean;
       /** True when the provider's recitation filter blocked the answer (it copied public text word for word). */
       recitation?: boolean;
+      /** The complete part of an answer that was stopped early (cut off, RECITATION, ...), already validated. */
+      partial?: T;
       timeMs: number;
     };
 
@@ -150,6 +152,45 @@ export function extractJSON(rawText: string): string | null {
   const lastBrace = cleaned.lastIndexOf('}');
   return firstBrace === -1 || lastBrace <= firstBrace ? null : cleaned.substring(firstBrace, lastBrace + 1);
 }
+
+/**
+ * For an answer that was stopped midway: cuts the JSON after the last object that was completely
+ * written and closes whatever is still open, so every complete item (topic, question, label) is kept
+ * and the half-written one is dropped. Returns null if no object was completed.
+ */
+export function salvageJSON(rawText: string): string | null {
+  const cleaned = (rawText || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```thinking[\s\S]*?```/gi, '');
+  const first = cleaned.indexOf('{');
+  if (first === -1) return null;
+
+  const open: string[] = []; // brackets still open at the current position
+  let inString = false;
+  let escaped = false;
+  let cut = -1;
+  let closers = '';
+  for (let i = first; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') open.push(ch);
+    else if (ch === '}' || ch === ']') {
+      open.pop();
+      if (ch === '}') {
+        cut = i + 1; // an object just closed: a safe place to stop
+        closers = open.map((b) => (b === '{' ? '}' : ']')).reverse().join('');
+      }
+    }
+  }
+  return cut === -1 ? null : cleaned.slice(first, cut) + closers;
+}
+
+/** What one provider call returns. `partial` = the answer text so far when the provider stopped it early. */
+type CallResult = { text: string; status: number; error?: string; partial?: string };
 
 /**
  * Maps HTTP status codes or error types to user-friendly messages.
@@ -232,7 +273,7 @@ async function callGoogleAIStudio(
   withJsonMime: boolean = true,
   signal: AbortSignal,
   temperature: number = 0,
-): Promise<{ text: string; status: number; error?: string }> {
+): Promise<CallResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     modelId,
   )}:generateContent`;
@@ -281,18 +322,20 @@ async function callGoogleAIStudio(
   const candidate = json?.candidates?.[0];
   const responseParts = candidate?.content?.parts;
 
+  const text = Array.isArray(responseParts)
+    ? responseParts
+        .filter((part: any) => !part.thought)
+        .map((part: any) => part.text || '')
+        .join('')
+    : '';
+
   // A blocked prompt has no candidate; a stopped answer may have none either
   const stopped = finishError(json?.promptFeedback?.blockReason ?? candidate?.finishReason);
-  if (stopped) return { text: '', status, error: stopped };
+  if (stopped) return { text: '', status, error: stopped, partial: text };
 
   if (!Array.isArray(responseParts) || responseParts.length === 0) {
     return { text: '', status, error: 'Empty response candidate from model' };
   }
-
-  const text = responseParts
-    .filter((part: any) => !part.thought)
-    .map((part: any) => part.text || '')
-    .join('');
 
   return { text, status };
 }
@@ -331,7 +374,7 @@ async function callGoogleAIStudioStream(
   onStream: (e: StreamEvent) => void,
   onActivity: () => void,
   temperature: number = 0,
-): Promise<{ text: string; status: number; error?: string }> {
+): Promise<CallResult> {
   // Imported lazily so this module stays free of native modules (it is unit-tested in Node).
   // expo/fetch (unlike RN's built-in fetch) can read the response body as a stream.
   const { fetch: streamFetch } = await import('expo/fetch');
@@ -410,7 +453,7 @@ async function callGoogleAIStudioStream(
     )}`,
   );
   const stopped = finishError(finish);
-  if (stopped) return { text: '', status, error: stopped };
+  if (stopped) return { text: '', status, error: stopped, partial: answer };
   if (!answer) return { text: '', status, error: 'Empty response candidate from model' };
   return { text: answer, status };
 }
@@ -437,7 +480,7 @@ async function callOpenAICompatible(
   signal: AbortSignal,
   extraHeaders: Record<string, string> = {},
   temperature: number = 0,
-): Promise<{ text: string; status: number; error?: string }> {
+): Promise<CallResult> {
   const url = chatCompletionsUrl(baseUrl);
 
   const content: Array<
@@ -487,8 +530,8 @@ async function callOpenAICompatible(
     return { text: '', status, error: errorMsg };
   }
 
-  if (json?.choices?.[0]?.finish_reason === 'length') return { text: '', status, error: ANSWER_CUT_OFF };
   const text = json?.choices?.[0]?.message?.content || '';
+  if (json?.choices?.[0]?.finish_reason === 'length') return { text: '', status, error: ANSWER_CUT_OFF, partial: text };
   return { text, status };
 }
 
@@ -550,7 +593,7 @@ export async function generateJSON<T = unknown>(
     promptText: string,
     withJsonMime: boolean,
     timeoutMs: number = AI_TIMEOUT_MS,
-  ): Promise<{ text: string; status: number; error?: string }> => {
+  ): Promise<CallResult> => {
     const controller = new AbortController();
     let timedOut = false;
     const abort = () => {
@@ -644,6 +687,17 @@ export async function generateJSON<T = unknown>(
   // A cut-off or early-stopped answer is final: a retry would stop at the same place
   if (res.error === ANSWER_CUT_OFF || res.error?.startsWith(STOPPED_EARLY)) {
     const reason = res.error.match(/\((\w+)\)/)?.[1];
+    // Keep the complete part of the stopped answer so the caller can ask for just the rest
+    let partial: T | undefined;
+    const salvaged = res.partial ? salvageJSON(res.partial) : null;
+    if (salvaged) {
+      try {
+        const v = validator(JSON.parse(salvaged));
+        if (v.ok) partial = v.data;
+      } catch {
+        // not usable: no partial
+      }
+    }
     return {
       ok: false,
       error: res.error,
@@ -656,6 +710,7 @@ export async function generateJSON<T = unknown>(
       fatal: false,
       cutOff: res.error === ANSWER_CUT_OFF,
       recitation: reason === 'RECITATION',
+      partial,
       timeMs: Date.now() - startTime,
     };
   }

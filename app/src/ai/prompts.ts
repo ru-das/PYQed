@@ -13,14 +13,19 @@ export function pageToQuestionsPrompt(
   pageNumber: number,
   totalPages?: number,
   previousLastQuestion?: string,
+  /** Set when an earlier answer for this page was stopped midway: "number: first words" of the last question kept. */
+  resumeAfter?: string,
 ): string {
   const pageLabel = totalPages ? `page ${pageNumber} of ${totalPages}` : `page ${pageNumber}`;
   const continuity = previousLastQuestion
     ? `\nThe previous page ended with question number "${previousLastQuestion}". If this page begins with the continuation of that question, set "continues_previous": true on the first question entry.`
     : '';
+  const resume = resumeAfter
+    ? `\nYour earlier answer for this page stopped midway. It already listed every question up to and including: ${resumeAfter}\nList ONLY the questions that come after it. Never repeat a question already listed. Set "continues_previous" to false.\n`
+    : '';
 
   return `Read ${pageLabel} of a university exam question paper (PYQ) and list every question on it as JSON.
-${continuity}
+${continuity}${resume}
 Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
 
 Rules:
@@ -70,7 +75,12 @@ Return ONLY JSON in this shape:
 /** How topic "details" are written: copied exactly (default), summarised, or left out. */
 export type DetailsMode = 'exact' | 'summary' | 'none';
 
-export function syllabusToStructurePrompt(previous?: SyllabusPosition | null, details: DetailsMode = 'exact'): string {
+export function syllabusToStructurePrompt(
+  previous?: SyllabusPosition | null,
+  details: DetailsMode = 'exact',
+  /** Set when an earlier answer for these same pages was stopped midway: only the rest is asked for. */
+  resume?: SyllabusPosition | null,
+): string {
   // Fallbacks when the provider's recitation filter blocked a word-for-word copy: names stay exact, details shrink
   const detailsRule = {
     exact: '- "details" = the text printed for that topic, copied exactly with no length limit; "" if none.',
@@ -86,9 +96,16 @@ export function syllabusToStructurePrompt(previous?: SyllabusPosition | null, de
         previous.code ? ' and code' : ''
       }${previous.unit ? `, and unit "${previous.unit}" if it continues that unit` : ''}. Start a new subject only where a new subject heading is printed.\n`
     : '';
+  const resumeNote = resume
+    ? `\nYour earlier answer for these pages stopped midway. It already covered everything up to ${
+        resume.topic ? `topic "${resume.topic}" in ` : ''
+      }${resume.unit ? `unit "${resume.unit}" of ` : ''}subject "${resume.subject}". List ONLY what comes after that point, starting with the next topic, unit or subject. If the next topics still belong to that subject or unit, use exactly the same subject${
+        resume.unit ? ' and unit' : ''
+      } name. Never repeat anything up to and including that point.\n`
+    : '';
   return `Read this university syllabus and list its subjects, units and topics as JSON.
 The document may contain several subjects, and a subject may start or end in the middle of a page: extract all of them.
-${continuation}
+${continuation}${resumeNote}
 Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
 
 Rules:

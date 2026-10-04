@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { ANSWER_CUT_OFF, generateJSON, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
+import { ANSWER_CUT_OFF, generateJSON, salvageJSON, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
 import {
   deriveQuestionType,
   checkNeedsReview,
@@ -9,6 +9,9 @@ import {
 } from '../validators';
 import { pageToQuestionsPrompt, syllabusToStructurePrompt, topicLabelsPrompt } from '../prompts';
 import { lastSyllabusPosition, mergeSyllabusSubjects } from '../../logic/syllabus';
+import { mergePageParts } from '../../logic/paper';
+import { runResumable } from '../resume';
+import type { GenerateJSONResult } from '../client';
 
 describe('finishError', () => {
   it('accepts a normal stop', () => {
@@ -428,13 +431,13 @@ describe('lastSyllabusPosition', () => {
   it('returns the last subject and its last unit', () => {
     const pos = lastSyllabusPosition([
       { name: 'A', code: null, units: [{ name: 'U1', topics: [] }] },
-      { name: 'B', code: 'B1', units: [{ name: 'U1', topics: [] }, { name: 'U2', topics: [] }] },
+      { name: 'B', code: 'B1', units: [{ name: 'U1', topics: [] }, { name: 'U2', topics: [{ name: 'T1' }, { name: 'T2' }] }] },
     ]);
-    assert.deepStrictEqual(pos, { subject: 'B', code: 'B1', unit: 'U2' });
+    assert.deepStrictEqual(pos, { subject: 'B', code: 'B1', unit: 'U2', topic: 'T2' });
   });
 
   it('handles a subject with no units and an empty list', () => {
-    assert.deepStrictEqual(lastSyllabusPosition([{ name: 'A', code: null, units: [] }]), { subject: 'A', code: null, unit: null });
+    assert.deepStrictEqual(lastSyllabusPosition([{ name: 'A', code: null, units: [] }]), { subject: 'A', code: null, unit: null, topic: null });
     assert.strictEqual(lastSyllabusPosition([]), null);
   });
 });
@@ -484,5 +487,94 @@ describe('generateJSON stop', () => {
       prompt: 'x', schemaName: 'pageQuestions', provider: 'aistudio', apiKey: 'k', modelId: 'm', signal: controller.signal,
     });
     assert.ok(!res.ok && res.fatal && res.friendlyError === 'Stopped.');
+  });
+});
+
+describe('salvageJSON', () => {
+  it('keeps every complete item and closes what is still open', () => {
+    const cut = '{"subjects":[{"name":"A","units":[{"name":"U","topics":[{"name":"T1"},{"name":"T2"},{"name":"T3","det';
+    const out = salvageJSON(cut)!;
+    assert.deepStrictEqual(JSON.parse(out).subjects[0].units[0].topics.map((t: any) => t.name), ['T1', 'T2']);
+  });
+
+  it('ignores braces and quotes inside strings', () => {
+    const out = salvageJSON('{"a":[{"x":"1"},{"x":"say \\"hi\\" }"},{"x":"3');
+    assert.deepStrictEqual(JSON.parse(out!).a.map((o: any) => o.x), ['1', 'say "hi" }']);
+  });
+
+  it('returns null when no object was completed', () => {
+    assert.strictEqual(salvageJSON('{"labels":[{"q":"Q1","top'), null);
+    assert.strictEqual(salvageJSON('no json here'), null);
+  });
+
+  it('leaves a complete answer unchanged', () => {
+    assert.strictEqual(salvageJSON('{"a":[1,{"b":2}]}'), '{"a":[1,{"b":2}]}');
+  });
+});
+
+describe('runResumable', () => {
+  type D = { items: string[] };
+  const merge = (ps: D[]): D => ({ items: ps.flatMap((p) => p.items) });
+  const size = (d: D) => d.items.length;
+  const ok = (items: string[]): GenerateJSONResult<D> => ({ ok: true, data: { items }, rawText: '', timeMs: 0 });
+  const stopped = (partial?: D): GenerateJSONResult<D> => ({
+    ok: false, error: 'stopped', friendlyError: 'stopped', fatal: false, partial, timeMs: 0,
+  });
+
+  it('keeps the partial and asks for the rest, then merges', async () => {
+    const seen: (D | null)[] = [];
+    const answers = [stopped({ items: ['a', 'b'] }), ok(['c'])];
+    const { res, parts } = await runResumable<D>({ call: async (soFar) => (seen.push(soFar), answers.shift()!), merge, size });
+    assert.ok(res.ok && res.data.items.join('') === 'abc');
+    assert.strictEqual(parts.length, 2);
+    assert.deepStrictEqual(seen, [null, { items: ['a', 'b'] }]);
+  });
+
+  it('stops when the rest adds nothing new', async () => {
+    const answers = [stopped({ items: ['a'] }), stopped({ items: [] }), ok(['never'])];
+    const { res, parts } = await runResumable<D>({ call: async () => answers.shift()!, merge, size });
+    assert.ok(!res.ok);
+    assert.deepStrictEqual(merge(parts).items, ['a']);
+  });
+
+  it('gives up at once when there is no partial (or the user stopped)', async () => {
+    let calls = 0;
+    const { res, parts } = await runResumable<D>({ call: async () => (calls++, stopped()), merge, size });
+    assert.ok(!res.ok);
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(parts.length, 0);
+  });
+
+  it('never calls more than maxCalls times', async () => {
+    let n = 0;
+    await runResumable<D>({ call: async () => stopped({ items: [`x${n++}`] }), merge, size, maxCalls: 3 });
+    assert.strictEqual(n, 3);
+  });
+});
+
+describe('resume prompts and page merge', () => {
+  it('syllabus prompt names where the earlier answer stopped', () => {
+    const p = syllabusToStructurePrompt(null, 'exact', { subject: 'Maths', code: null, unit: 'Unit 2', topic: 'Limits' });
+    assert.ok(p.includes('topic "Limits"') && p.includes('unit "Unit 2"') && p.includes('subject "Maths"'));
+    assert.ok(!syllabusToStructurePrompt(null, 'exact').includes('stopped midway'));
+  });
+
+  it('page prompt names the last question kept', () => {
+    assert.ok(pageToQuestionsPrompt(1, 2, undefined, '3b: Define a stack').includes('3b: Define a stack'));
+    assert.ok(!pageToQuestionsPrompt(1, 2).includes('stopped midway'));
+  });
+
+  it('mergePageParts keeps the first paper info, drops repeats, resets continues_previous', () => {
+    const q = (number: string, text: string, cont = false) => ({
+      number, group: null, text, marks: 2, has_options: false, or_alternative: false, continues_previous: cont,
+    });
+    const meta = { year: 2020, session: null, subject_name: null, subject_code: null };
+    const merged = mergePageParts([
+      { paper: meta, questions: [q('1', 'a'), q('2', 'b')] },
+      { paper: { ...meta, year: null }, questions: [q('2', 'b'), q('3', 'c', true)] },
+    ]);
+    assert.strictEqual(merged.paper.year, 2020);
+    assert.deepStrictEqual(merged.questions.map((x) => x.number), ['1', '2', '3']);
+    assert.strictEqual(merged.questions[2].continues_previous, false);
   });
 });

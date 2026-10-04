@@ -7,7 +7,8 @@
  */
 
 import { Provider } from '../config';
-import { devLog, generateJSON, streamProgress, StreamProgress } from './client';
+import { devLog, generateJSON, GenerateJSONResult, streamProgress, StreamProgress } from './client';
+import { runResumable } from './resume';
 import { DetailsMode, syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
@@ -15,7 +16,7 @@ import {
 } from './validators';
 import type { PdfWorkerHandle } from '../pdf/PdfWorker';
 import { processPdf, ProcessPdfProgress } from '../pdf/processPdf';
-import { lastSyllabusPosition, mergeSyllabusSubjects, SyllabusPosition } from '../logic/syllabus';
+import { countTopics, lastSyllabusPosition, mergeSyllabusSubjects, SyllabusPosition } from '../logic/syllabus';
 
 export { mergeSyllabusSubjects };
 
@@ -29,6 +30,8 @@ export type SyllabusImportProgress = {
   current: number;
   total: number;
   message: string;
+  /** Set while the rest of a stopped answer is being asked for: the topic (or unit) it continues after */
+  after?: string;
   /** Live signal from the model while it works on this call (see StreamProgress) */
   live?: StreamProgress<{ units: number; topics: number }>;
 };
@@ -69,29 +72,53 @@ function countFound(text: string) {
 }
 
 type SyllabusCall = Parameters<typeof generateJSON<SyllabusStructureResponse>>[0];
+type SyllabusResult = GenerateJSONResult<SyllabusStructureResponse> & { partly?: boolean };
+
+const mergeParts = (parts: SyllabusStructureResponse[]): SyllabusStructureResponse => ({
+  subjects: mergeSyllabusSubjects(parts.map((p) => p.subjects)),
+});
 
 /**
- * One syllabus call. If the provider's recitation filter blocks it (the answer copied public text word
- * for word), ask again for the same pages with details summarised, then once more with no details.
- * `onFallback` tells the caller which fallback ran so the user hears about it.
+ * One syllabus call. If the provider stops the answer midway (output cap, or its recitation filter because
+ * the answer copied public text word for word), the complete part is kept and Gemma is asked only for
+ * what comes after it. If the recitation filter still blocks, ask again with details summarised, then
+ * with no details. `onFallback` tells the caller which fallback ran so the user hears about it.
+ * `partly` = the call ended for good but part of the pages was read.
  */
 async function callSyllabus(
-  promptFor: (details: DetailsMode) => string,
+  promptFor: (details: DetailsMode, resume?: SyllabusPosition | null) => string,
   params: Omit<SyllabusCall, 'prompt' | 'schemaName' | 'temperature'>,
   onFallback: (mode: 'summary' | 'none') => void,
-) {
-  const call = (mode: DetailsMode) =>
-    generateJSON<SyllabusStructureResponse>({
-      ...params,
-      prompt: promptFor(mode),
-      schemaName: 'syllabusStructure',
-      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
+  onResume?: (pos: SyllabusPosition) => void,
+): Promise<SyllabusResult> {
+  let parts: SyllabusStructureResponse[] = [];
+  let mode: DetailsMode = 'exact';
+  let res: GenerateJSONResult<SyllabusStructureResponse>;
+  for (;;) {
+    const run = await runResumable<SyllabusStructureResponse>({
+      call: (soFar) =>
+        generateJSON<SyllabusStructureResponse>({
+          ...params,
+          prompt: promptFor(mode, soFar ? lastSyllabusPosition(soFar.subjects) : null),
+          schemaName: 'syllabusStructure',
+          temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
+        }),
+      merge: mergeParts,
+      size: (d) => countTopics(d.subjects),
+      initial: parts,
+      onResume: (soFar) => {
+        const pos = lastSyllabusPosition(soFar.subjects);
+        if (pos) onResume?.(pos);
+      },
     });
-  let res = await call('exact');
-  for (const mode of ['summary', 'none'] as const) {
-    if (res.ok || !res.recitation) break;
+    res = run.res;
+    parts = run.parts;
+    if (res.ok || !res.recitation || mode === 'none') break;
+    mode = mode === 'exact' ? 'summary' : 'none';
     onFallback(mode);
-    res = await call(mode);
+  }
+  if (!res.ok && parts.length) {
+    return { ok: true, data: mergeParts(parts), rawText: '', timeMs: res.timeMs, partly: true };
   }
   return res;
 }
@@ -101,11 +128,12 @@ function streamHandlers(
   onProgress: ImportSyllabusOptions['onProgress'],
   current: number,
   total: number,
+  getAfter?: () => string | undefined,
 ) {
   const message = total > 1 ? `Reading batch ${current} of ${total}...` : 'Analyzing syllabus...';
   return {
     onStream: streamProgress(
-      (live) => onProgress?.({ stage: 'analyzing', current, total, message, live }),
+      (live) => onProgress?.({ stage: 'analyzing', current, total, message, live, after: getAfter?.() }),
       countFound,
     ),
     onRetry: () =>
@@ -150,8 +178,8 @@ export async function importSyllabus(
 
     const textNotices: string[] = [];
     const res = await callSyllabus(
-      (mode) =>
-        `${syllabusToStructurePrompt(null, mode)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
+      (mode, resume) =>
+        `${syllabusToStructurePrompt(null, mode, resume)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
       { provider, apiKey, modelId, signal, ...streamHandlers(onProgress, 1, 1) },
       (mode) => textNotices.push(FALLBACK_NOTICE[mode]),
     );
@@ -248,7 +276,8 @@ export async function importSyllabus(
     const totalChunks = part + Math.ceil((pages.length - start) / size);
     part++;
 
-    const handlers = streamHandlers(onProgress, part, totalChunks);
+    let after: string | undefined; // set once an answer was stopped and the rest is being asked for
+    const handlers = streamHandlers(onProgress, part, totalChunks, () => after);
     onProgress?.({
       stage: 'analyzing',
       current: part,
@@ -263,15 +292,21 @@ export async function importSyllabus(
       )} KB`,
     );
     const res = await callSyllabus(
-      (mode) => `${syllabusToStructurePrompt(position, mode)}\n\n${pageList}`,
+      (mode, resume) => `${syllabusToStructurePrompt(position, mode, resume)}\n\n${pageList}`,
       { images: chunk, provider, apiKey, modelId, signal, ...handlers },
       (mode) => {
         if (!notices.includes(FALLBACK_NOTICE[mode])) notices.push(FALLBACK_NOTICE[mode]);
+      },
+      (pos) => {
+        after = pos.topic ?? pos.unit ?? pos.subject;
+        devLog(`[syllabus] answer stopped early; continuing after "${after}"`);
+        onProgress?.({ stage: 'analyzing', current: part, total: totalChunks, message: `Continuing after "${after}"...`, after });
       },
     );
 
     if (signal?.aborted) return stopped;
     if (res.ok) {
+      if (res.partly) notices.push(`Only part of ${range} could be read; check the end of that part.`);
       batches.push(res.data.subjects);
       position = lastSyllabusPosition(res.data.subjects) ?? position;
       start += chunk.length;

@@ -16,7 +16,8 @@ import {
 } from './validators';
 import type { PdfWorkerHandle } from '../pdf/PdfWorker';
 import { openPdf } from '../pdf/processPdf';
-import { extractYearFromFilename, mergeContinuesPrevious } from '../logic/paper';
+import { extractYearFromFilename, mergeContinuesPrevious, mergePageParts } from '../logic/paper';
+import { runResumable } from './resume';
 
 export type PaperSource =
   | { type: 'pdf'; fileUri: string; fileName: string }
@@ -91,26 +92,44 @@ export type ImportPaperOptions = {
 type AiSettings = { provider: Provider; apiKey: string; modelId: string };
 
 /** Ask the AI for the questions on one page. Used by the import loop and by "Retry this page". */
-export function extractPage(
+export async function extractPage(
   page: { pageNumber: number; text?: string; imageBase64: string },
   totalPages: number,
   previousLastQuestion: string | undefined,
   ai: AiSettings,
   onStream?: (e: StreamEvent) => void,
   signal?: AbortSignal,
-): Promise<GenerateJSONResult<PageQuestionsResponse>> {
-  const basePrompt = pageToQuestionsPrompt(page.pageNumber, totalPages, previousLastQuestion);
-  const prompt = page.text
-    ? `${basePrompt}\n\nHere is the text extracted from this page:\n"""\n${page.text}\n"""`
-    : basePrompt;
-  return generateJSON<PageQuestionsResponse>({
-    prompt,
-    images: page.imageBase64 ? [page.imageBase64] : undefined,
-    schemaName: 'pageQuestions',
-    onStream,
-    signal,
-    ...ai,
+): Promise<GenerateJSONResult<PageQuestionsResponse> & { partly?: boolean }> {
+  // If the provider stops the answer midway, the questions already written are kept and only the rest is asked for
+  const { res, parts } = await runResumable<PageQuestionsResponse>({
+    call: (soFar) => {
+      const last = soFar?.questions[soFar.questions.length - 1];
+      const basePrompt = pageToQuestionsPrompt(
+        page.pageNumber,
+        totalPages,
+        previousLastQuestion,
+        last ? `${last.number}: ${last.text.slice(0, 60)}` : undefined,
+      );
+      const prompt = page.text
+        ? `${basePrompt}\n\nHere is the text extracted from this page:\n\"\"\"\n${page.text}\n\"\"\"`
+        : basePrompt;
+      return generateJSON<PageQuestionsResponse>({
+        prompt,
+        images: page.imageBase64 ? [page.imageBase64] : undefined,
+        schemaName: 'pageQuestions',
+        onStream,
+        signal,
+        ...ai,
+      });
+    },
+    merge: mergePageParts,
+    size: (d) => d.questions.length,
   });
+  // Stopped for good, but part of the page was read: use that part and say so
+  if (!res.ok && parts.length && !signal?.aborted) {
+    return { ok: true, data: mergePageParts(parts), rawText: '', timeMs: res.timeMs, partly: true };
+  }
+  return res;
 }
 
 export async function importPaper(
@@ -272,6 +291,8 @@ export async function importPaper(
       imageBase64: page.imageBase64,
       questions: currentQuestions,
       paperMeta: res.data.paper,
+      // Part of the page could not be read: the review screen shows its "Couldn't read this page" banner
+      ...(res.partly ? { error: 'Only part of this page was read.' } : {}),
     });
   }
 

@@ -392,7 +392,9 @@ export default function PaperImportScreen() {
       }
       setPages((all) =>
         all.map((p, i) =>
-          i === activePageIndex ? { ...p, error: undefined, questions: toEditable(res.data.questions) } : p,
+          i === activePageIndex
+            ? { ...p, error: res.partly ? 'Only part of this page was read.' : undefined, questions: toEditable(res.data.questions) }
+            : p,
         ),
       );
       toast(`Page ${page.pageNumber} read again: ${res.data.questions.length} questions`);

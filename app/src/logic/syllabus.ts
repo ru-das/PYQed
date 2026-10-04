@@ -9,17 +9,24 @@ import {
   RawSyllabusTopic,
 } from '../ai/validators';
 
-/** Where a chunk of pages ended: its last subject and that subject's last unit. */
-export type SyllabusPosition = { subject: string; code: string | null; unit: string | null };
+/** Where a chunk of pages ended: its last subject, that subject's last unit and that unit's last topic. */
+export type SyllabusPosition = { subject: string; code: string | null; unit: string | null; topic: string | null };
+
+/** Total topics in a list of subjects (to tell whether a continued answer added anything). */
+export function countTopics(subjects: RawSyllabusSubject[]): number {
+  return subjects.reduce((n, s) => n + s.units.reduce((m, u) => m + u.topics.length, 0), 0);
+}
 
 /** Used to tell the model which subject the next chunk of pages probably continues. */
 export function lastSyllabusPosition(subjects: RawSyllabusSubject[]): SyllabusPosition | null {
   const last = subjects[subjects.length - 1];
   if (!last) return null;
+  const unit = last.units[last.units.length - 1];
   return {
     subject: last.name,
     code: last.code,
-    unit: last.units.length ? last.units[last.units.length - 1].name : null,
+    unit: unit ? unit.name : null,
+    topic: unit?.topics.length ? unit.topics[unit.topics.length - 1].name : null,
   };
 }
 

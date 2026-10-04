@@ -9,6 +9,7 @@
 import { Provider } from '../config';
 import { generateJSON, streamProgress, StreamProgress, countMatches } from './client';
 import { topicLabelsPrompt } from './prompts';
+import { runResumable } from './resume';
 import { validateTopicLabels, RawTopicLabel, TopicLabelsResponse } from './validators';
 import { Subject, Question, Unit } from '../logic/subject';
 
@@ -20,6 +21,12 @@ export type LabelProgress = {
 };
 
 const CHUNK_SIZE = 25;
+
+/** Joins label parts for one chunk; a question labelled twice keeps its first label. */
+function mergeLabels(parts: TopicLabelsResponse[]): TopicLabelsResponse {
+  const seen = new Set<string>();
+  return { labels: parts.flatMap((p) => p.labels).filter((l) => !seen.has(l.q) && !!seen.add(l.q)) };
+}
 
 /**
  * Build compact topic list "T1 | UnitName | TopicName".
@@ -132,37 +139,52 @@ export async function labelQuestions(
     )} of ${questionsToLabel.length}...`;
     onProgress?.({ current: i + 1, total: chunks.length, message: msg });
 
-    const questions = buildQuestionList(chunk);
-
     try {
-      const res = await generateJSON<TopicLabelsResponse>({
-        prompt: topicLabelsPrompt(topics.text, questions.text),
-        schemaName: 'topicLabels',
-        provider,
-        apiKey,
-        modelId,
-        temperature: 1, // 0 lets Gemma loop on "re-checking" (same as the syllabus call)
-        signal,
-        onStream: streamProgress(
-          (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
-          countMatches(/"q"\s*:/g),
-        ),
+      // If the provider stops the answer midway, the labels already written are kept and only the
+      // questions without a label are asked again. Parts hold real question IDs, so they merge by ID.
+      const { res, parts } = await runResumable<TopicLabelsResponse>({
+        call: async (soFar) => {
+          const done = new Set(soFar?.labels.map((l) => l.q));
+          const questions = buildQuestionList(chunk.filter((q) => !done.has(q.id)));
+          const toReal = (d: TopicLabelsResponse): TopicLabelsResponse => ({
+            labels: d.labels.flatMap((l) => {
+              const id = resolveAlias(questions.aliasToId, l.q, 'Q');
+              return id ? [{ ...l, q: id }] : [];
+            }),
+          });
+          const r = await generateJSON<TopicLabelsResponse>({
+            prompt: topicLabelsPrompt(topics.text, questions.text),
+            schemaName: 'topicLabels',
+            provider,
+            apiKey,
+            modelId,
+            temperature: 1, // 0 lets Gemma loop on "re-checking" (same as the syllabus call)
+            signal,
+            onStream: streamProgress(
+              (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
+              countMatches(/"q"\s*:/g),
+            ),
+          });
+          if (r.ok) return { ...r, data: toReal(r.data) };
+          return r.partial ? { ...r, partial: toReal(r.partial) } : r;
+        },
+        merge: mergeLabels,
+        size: (d) => d.labels.length,
       });
+
+      const got = res.ok ? res.data.labels : parts.length ? mergeLabels(parts).labels : [];
+      for (const item of got) {
+        labelMap.set(item.q, {
+          topicId: resolveAlias(topics.aliasToId, item.topic, 'T'), // null if unknown or explicitly null
+          confidence: item.confidence,
+        });
+      }
 
       if (!res.ok) {
         if (signal?.aborted) break; // stopped by the user: keep the labels found so far, no error note
         error ??= res.friendlyError;
         console.warn('Topic labelling chunk failed:', res.error);
         if (res.fatal) break; // bad key / rate limit / offline: later chunks would fail too
-        continue;
-      }
-      for (const item of res.data.labels) {
-        const qId = resolveAlias(questions.aliasToId, item.q, 'Q');
-        if (!qId) continue;
-        labelMap.set(qId, {
-          topicId: resolveAlias(topics.aliasToId, item.topic, 'T'), // null if unknown or explicitly null
-          confidence: item.confidence,
-        });
       }
     } catch (e: any) {
       // Non-fatal: those questions stay unassigned, but tell the user why

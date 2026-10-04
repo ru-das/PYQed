@@ -3,7 +3,7 @@
  * No React Native dependencies — runs in pure Node/tests.
  */
 
-import { RawExtractedQuestion, deriveQuestionType, checkNeedsReview } from '../ai/validators';
+import { RawExtractedQuestion, PageQuestionsResponse, deriveQuestionType, checkNeedsReview } from '../ai/validators';
 import { Question, newId } from './subject';
 
 export type NumberingGap = {
@@ -188,4 +188,23 @@ export function buildQuestionsFromPages(
   }
 
   return questions;
+}
+
+/**
+ * Joins the answers for one page when the first was stopped midway and the rest was asked for separately.
+ * Paper details come from the first part; a question the model repeated (same number and text) is kept once;
+ * questions in a later part never continue a question from the page before.
+ */
+export function mergePageParts(parts: PageQuestionsResponse[]): PageQuestionsResponse {
+  const seen = new Set<string>();
+  const questions: RawExtractedQuestion[] = [];
+  parts.forEach((part, i) => {
+    for (const q of part.questions) {
+      const key = `${q.number.trim()}|${q.text.trim()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      questions.push(i > 0 ? { ...q, continues_previous: false } : q);
+    }
+  });
+  return { paper: parts[0].paper, questions };
 }
