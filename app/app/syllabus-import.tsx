@@ -364,6 +364,7 @@ export default function SyllabusImportScreen() {
         onDismiss={() => {
           setShowKeySheet(false);
           pendingSourceRef.current = null;
+          setStep('picker'); // picking photos already switched to the progress page
         }}
         onKeyReady={handleKeyReady}
       />
