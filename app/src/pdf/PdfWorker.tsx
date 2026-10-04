@@ -13,7 +13,8 @@ export type PageResult =
 
 export type PdfWorkerHandle = {
   loadPdf: (base64: string) => Promise<{ pageCount: number }>;
-  getPage: (pageNumber: number) => Promise<PageResult>;
+  /** longEdge: render size in px (default 1600). */
+  getPage: (pageNumber: number, longEdge?: number) => Promise<PageResult>;
 };
 
 export type PdfWorkerProps = {
@@ -172,7 +173,7 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
           });
         },
 
-        getPage: async (pageNumber: number): Promise<PageResult> => {
+        getPage: async (pageNumber: number, longEdge?: number): Promise<PageResult> => {
           await waitForReady();
 
           return new Promise<PageResult>((resolve, reject) => {
@@ -187,6 +188,7 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
             postToWebView({
               type: 'getPage',
               pageNumber,
+              longEdge,
             });
           });
         },

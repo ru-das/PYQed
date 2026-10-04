@@ -71,7 +71,7 @@ const clientLogic = `
     }
   }
 
-  async function handleGetPage(pageNumber) {
+  async function handleGetPage(pageNumber, longEdge) {
     if (!currentPdfDoc) {
       sendToApp({ type: 'pageError', pageNumber: pageNumber, error: 'No PDF loaded' });
       return;
@@ -100,7 +100,7 @@ const clientLogic = `
       var origWidth = unscaledViewport.width;
       var origHeight = unscaledViewport.height;
       var maxDim = Math.max(origWidth, origHeight);
-      var targetMaxDim = 1600;
+      var targetMaxDim = longEdge || 1600;
       var scale = 1.0;
       if (maxDim > 0) {
         scale = targetMaxDim / maxDim;
@@ -180,7 +180,7 @@ const clientLogic = `
         handleLoadPdf(completeBase64);
       }
     } else if (msg.type === 'getPage') {
-      handleGetPage(msg.pageNumber);
+      handleGetPage(msg.pageNumber, msg.longEdge);
     }
   }
 

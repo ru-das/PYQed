@@ -47,6 +47,9 @@ export type ImportSyllabusOptions = {
 };
 
 /** Pages sent to the model per call. */
+// ponytail: a full-size render lets Gemma copy the syllabus exactly and Google's recitation filter blocks it;
+// ~1000 px matches a cropped phone screenshot, which passed. Raise it if small table text is misread.
+const SYLLABUS_PDF_LONG_EDGE = 1000;
 const CHUNK_PAGES = 3; // 6 pages of a clean PDF render got blocked as RECITATION; photos of the same pages were fine
 const RECITATION_NOTICE =
   'Google blocked copying the syllabus word for word, so topic details were summarised in the AI\'s own words. Names are exact.';
@@ -180,6 +183,7 @@ export async function importSyllabus(
     const pdfResult = await processPdf({
       fileUri: source.fileUri,
       worker: pdfWorker,
+      longEdge: SYLLABUS_PDF_LONG_EDGE,
       onProgress: (p: ProcessPdfProgress) => {
         onProgress?.({
           stage: 'reading',

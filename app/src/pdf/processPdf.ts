@@ -19,6 +19,8 @@ export type ProcessPdfOptions = {
   fileUri: string;
   worker: PdfWorkerHandle;
   maxPages?: number;
+  /** Render size of each page in px (long edge); the worker's default is 1600. */
+  longEdge?: number;
   onProgress?: (progress: ProcessPdfProgress) => void;
 };
 
@@ -52,6 +54,7 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
     fileUri,
     worker,
     maxPages = getPrefs().maxPages,
+    longEdge,
     onProgress,
   } = options;
 
@@ -70,7 +73,7 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
 
     const pageStart = Date.now();
     try {
-      const result = await worker.getPage(pageNum);
+      const result = await worker.getPage(pageNum, longEdge);
       pages.push({
         pageNumber: pageNum,
         result,

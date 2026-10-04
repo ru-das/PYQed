@@ -19,7 +19,7 @@ describe('PDF Worker HTML bundle', () => {
   it('contains text extraction and 200 non-space char threshold (AGENTS.md §4)', () => {
     assert.ok(PDF_WORKER_HTML.includes('nonSpaceChars > 200'), 'Must check >200 non-space characters');
     assert.ok(PDF_WORKER_HTML.includes("toDataURL('image/jpeg', 0.8)"), 'Must render scanned pages to JPEG 0.8');
-    assert.ok(PDF_WORKER_HTML.includes('targetMaxDim = 1600'), 'Must scale long edge to ~1600px');
+    assert.ok(PDF_WORKER_HTML.includes('targetMaxDim = longEdge || 1600'), 'Must scale long edge to the given size, default ~1600px');
   });
 
   it('properly handles chunked PDF loading', () => {
