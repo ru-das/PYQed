@@ -2,13 +2,20 @@
  * AI client: calls Google AI Studio, OpenRouter, or any OpenAI-compatible server with the configured model.
  */
 
-import { AI_TIMEOUT_MS, OPENROUTER_BASE_URL, Provider } from '../config';
+import { AI_IDLE_TIMEOUT_MS, AI_TIMEOUT_MS, OPENROUTER_BASE_URL, Provider } from '../config';
 
 // A retry after an unreadable answer gets less time, so one bad page can't block the import for 10 minutes
 const RETRY_TIMEOUT_MS = 120_000;
 import { validators, ValidationResult } from './validators';
 
+/** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
+export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
+
 export type GenerateJSONParams = {
+  /** AI Studio only: when set, the answer is streamed and the call is only cut off if tokens stop arriving. */
+  onStream?: (e: StreamEvent) => void;
+  /** Called just before we ask the model again because its first answer was unreadable. */
+  onRetry?: () => void;
   prompt: string;
   images?: string[]; // base64 JPEG strings (without data: prefix)
   schemaName: string; // key into validators registry
@@ -191,6 +198,106 @@ async function callGoogleAIStudio(
 }
 
 /**
+ * Pulls the complete `data: {...}` lines out of an SSE buffer. Returns the parsed events and
+ * whatever trailing partial line is left, to be prepended to the next chunk.
+ */
+export function parseSSE(buffer: string): { events: any[]; rest: string } {
+  const lines = buffer.split('\n');
+  const rest = lines.pop() ?? ''; // last piece may be an unfinished line
+  const events: any[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t.startsWith('data:')) continue;
+    try {
+      events.push(JSON.parse(t.slice(5).trim()));
+    } catch {
+      // not JSON (keep-alive etc.): skip
+    }
+  }
+  return { events, rest };
+}
+
+/**
+ * Same request as callGoogleAIStudio, but streamed (SSE). Reports thinking/answer text as it
+ * arrives and calls onActivity on every chunk so the caller can run an idle timeout.
+ */
+async function callGoogleAIStudioStream(
+  apiKey: string,
+  modelId: string,
+  prompt: string,
+  images: string[] = [],
+  withJsonMime: boolean = true,
+  signal: AbortSignal,
+  onStream: (e: StreamEvent) => void,
+  onActivity: () => void,
+): Promise<{ text: string; status: number; error?: string }> {
+  // Imported lazily so this module stays free of native modules (it is unit-tested in Node).
+  // expo/fetch (unlike RN's built-in fetch) can read the response body as a stream.
+  const { fetch: streamFetch } = await import('expo/fetch');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    modelId,
+  )}:streamGenerateContent?alt=sse`;
+
+  const parts: Array<{ text: string } | { inline_data: { mime_type: string; data: string } }> = [
+    { text: prompt },
+  ];
+  for (const img of images) {
+    parts.push({
+      inline_data: { mime_type: 'image/jpeg', data: img.replace(/^data:image\/[a-zA-Z]+;base64,/, '') },
+    });
+  }
+  const generationConfig: Record<string, unknown> = { temperature: 0 };
+  if (withJsonMime) generationConfig.responseMimeType = 'application/json';
+
+  const response = await streamFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig }),
+    signal,
+  });
+  const status = response.status;
+
+  if (!response.ok) {
+    const json = await response.json().catch(() => null);
+    // Error bodies on the SSE endpoint may come back as a one-element array
+    const err = Array.isArray(json) ? json[0]?.error : json?.error;
+    return { text: '', status, error: err?.message || `HTTP ${status}: ${response.statusText}` };
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return { text: '', status, error: 'Streaming not supported on this device' };
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answer = '';
+  let thoughts = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onActivity();
+    buffer += decoder.decode(value, { stream: true });
+    const { events, rest } = parseSSE(buffer);
+    buffer = rest;
+    for (const ev of events) {
+      for (const part of ev?.candidates?.[0]?.content?.parts ?? []) {
+        if (!part.text) continue;
+        if (part.thought) {
+          thoughts += part.text;
+          onStream({ phase: 'thinking', text: thoughts });
+        } else {
+          answer += part.text;
+          onStream({ phase: 'writing', text: answer });
+        }
+      }
+    }
+  }
+
+  if (!answer) return { text: '', status, error: 'Empty response candidate from model' };
+  return { text: answer, status };
+}
+
+/**
  * Turns a base URL like "https://api.groq.com/openai/v1" (with or without a trailing slash,
  * or already ending in /chat/completions) into the full chat completions endpoint.
  */
@@ -316,11 +423,31 @@ export async function generateJSON<T = unknown>(
   ): Promise<{ text: string; status: number; error?: string }> => {
     const controller = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => {
+    const abort = () => {
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
+    };
+    const timer = setTimeout(abort, timeoutMs);
+    // Streaming: also cut off if the model goes silent (reset on every chunk)
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const onActivity = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(abort, AI_IDLE_TIMEOUT_MS);
+    };
     try {
+      if (params.provider === 'aistudio' && params.onStream) {
+        onActivity();
+        return await callGoogleAIStudioStream(
+          params.apiKey.trim(),
+          params.modelId.trim(),
+          promptText,
+          params.images,
+          withJsonMime,
+          controller.signal,
+          params.onStream,
+          onActivity,
+        );
+      }
       if (params.provider === 'aistudio') {
         return await callGoogleAIStudio(
           params.apiKey.trim(),
@@ -355,6 +482,7 @@ export async function generateJSON<T = unknown>(
       return { text: '', status: 0, error: msg };
     } finally {
       clearTimeout(timer);
+      clearTimeout(idleTimer);
     }
   };
 
@@ -406,6 +534,7 @@ export async function generateJSON<T = unknown>(
 
   // If extraction or validation failed, retry ONCE with explicit instructions
   if (!validation.ok) {
+    params.onRetry?.();
     const retryPrompt = `${params.prompt}\n\nIMPORTANT: Your previous response was invalid. Return ONLY a single raw valid JSON object without markdown fences, thoughts, or explanations.`;
     const retryRes = await runCall(retryPrompt, false, RETRY_TIMEOUT_MS);
 

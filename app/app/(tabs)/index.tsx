@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
@@ -6,7 +6,43 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { listSubjects, importSubjectFile, summaryLine, SubjectMeta } from '../../src/store/subjects';
 import { Ionicons } from '@expo/vector-icons';
 import { Logo } from '../../src/components/Logo';
+import { getSyllabusJob, subscribe } from '../../src/ai/syllabusJob';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme';
+
+/** Shows a running or finished background syllabus import; tap to go back to it. */
+function SyllabusBanner() {
+  const colors = useThemeColors();
+  const router = useRouter();
+  const job = useSyncExternalStore(subscribe, getSyllabusJob);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (job.status !== 'running') return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [job.status]);
+
+  if (job.status !== 'running' && job.status !== 'done') return null;
+  const sec = Math.max(0, Math.floor((now - job.startedAt) / 1000));
+  const text =
+    job.status === 'done'
+      ? 'Syllabus ready to review'
+      : `Reading your syllabus... ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  return (
+    <TouchableOpacity
+      style={[styles.banner, { backgroundColor: colors.accent + '15', borderColor: colors.accent }]}
+      onPress={() => router.push('/syllabus-import')}
+      accessibilityLabel={text}
+    >
+      <Ionicons
+        name={job.status === 'done' ? 'checkmark-circle' : 'hourglass-outline'}
+        size={20}
+        color={colors.accent}
+      />
+      <Text style={[styles.bannerText, { color: colors.text }]}>{text}</Text>
+      <Ionicons name="chevron-forward" size={18} color={colors.accent} />
+    </TouchableOpacity>
+  );
+}
 
 export default function HomeScreen() {
   const colors = useThemeColors();
@@ -40,6 +76,7 @@ export default function HomeScreen() {
   if (subjects.length > 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <SyllabusBanner />
         <FlatList
           data={subjects}
           keyExtractor={(m) => m.id}
@@ -93,6 +130,7 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <SyllabusBanner />
       <View style={styles.content}>
         <View style={{ marginBottom: Spacing.lg }}>
           <Logo size={112} />
@@ -162,6 +200,16 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+  },
+  bannerText: { flex: 1, fontSize: FontSize.body - 1, fontWeight: '600' },
   codeChip: {
     fontSize: FontSize.tiny,
     fontWeight: '600',

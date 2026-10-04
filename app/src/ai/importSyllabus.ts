@@ -6,7 +6,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON } from './client';
+import { generateJSON, StreamEvent } from './client';
 import { syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
@@ -26,10 +26,14 @@ export type SyllabusSource =
   | { type: 'text'; text: string };
 
 export type SyllabusImportProgress = {
-  stage: 'reading' | 'analyzing' | 'merging';
+  stage: 'reading' | 'analyzing' | 'thinking' | 'writing' | 'retrying' | 'merging';
   current: number;
   total: number;
   message: string;
+  /** Tail of the model's own reasoning, shown while it thinks */
+  peek?: string;
+  /** Running count from the partial JSON while the model writes */
+  found?: { units: number; topics: number };
 };
 
 export type SyllabusImportResult =
@@ -45,6 +49,47 @@ export type ImportSyllabusOptions = {
   onProgress?: (progress: SyllabusImportProgress) => void;
 };
 
+const count = (text: string, re: RegExp) => (text.match(re) || []).length;
+
+/** Turns the model's live stream into progress updates (at most one per 500 ms). */
+function streamHandlers(
+  onProgress: ImportSyllabusOptions['onProgress'],
+  current: number,
+  total: number,
+) {
+  let last = 0;
+  return {
+    onStream: (e: StreamEvent) => {
+      const now = Date.now();
+      if (now - last < 500) return;
+      last = now;
+      if (e.phase === 'thinking') {
+        onProgress?.({
+          stage: 'thinking',
+          current,
+          total,
+          message: 'Gemma is thinking...',
+          peek: e.text.replace(/\s+/g, ' ').slice(-90),
+        });
+      } else {
+        // Partial JSON: every unit has a "topics" key and every subject a "units" key, so
+        // topics = all "name" keys minus the subject and unit names
+        const units = count(e.text, /"topics"\s*:/g);
+        const subjects = count(e.text, /"units"\s*:/g);
+        const topics = Math.max(0, count(e.text, /"name"\s*:/g) - units - subjects);
+        onProgress?.({
+          stage: 'writing',
+          current,
+          total,
+          message: 'Writing the result...',
+          found: { units, topics },
+        });
+      }
+    },
+    onRetry: () =>
+      onProgress?.({ stage: 'retrying', current, total, message: 'Answer was messy, asking again...' }),
+  };
+}
 
 /**
  * Main importSyllabus function.
@@ -89,6 +134,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      ...streamHandlers(onProgress, 1, 1),
     });
 
     if (!res.ok) {
@@ -172,6 +218,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      ...streamHandlers(onProgress, 1, 1),
     });
 
     if (!res.ok) {
@@ -206,6 +253,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      ...streamHandlers(onProgress, pageNum, pages.length),
     });
 
     // A page with no syllabus content (cover, index, instructions) is fine; skip it

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,19 @@ import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
 import { pickPhotos } from '../src/pick';
-import { getApiSettings, hasApiKey } from '../src/ai/settings';
+import { hasApiKey } from '../src/ai/settings';
+import { SyllabusSource } from '../src/ai/importSyllabus';
 import {
-  importSyllabus,
-  SyllabusSource,
-  SyllabusImportProgress,
-} from '../src/ai/importSyllabus';
+  startSyllabusJob,
+  getSyllabusJob,
+  subscribe,
+  clearSyllabusJob,
+  SyllabusJob,
+} from '../src/ai/syllabusJob';
 import { mergeSyllabusSubjects } from '../src/logic/syllabus';
-import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
-import { ImportProgress } from '../src/components/ImportProgress';
+import { ImportProgress, ProgressStep, SYLLABUS_PHRASES } from '../src/components/ImportProgress';
 import { emptySubject, newId, saveSubject, Subject } from '../src/store/subjects';
 import { UnitsEditor } from '../src/components/UnitsEditor';
 
@@ -48,6 +50,31 @@ type EditableSubject = {
   units: EditableUnit[];
 };
 
+/** The real steps of the import, derived from what the job is doing right now. */
+function syllabusSteps(job: SyllabusJob): ProgressStep[] {
+  const { stage, found } = job.progress;
+  const labels = ['Prepare pages', 'Gemma is thinking', 'Writing the result'];
+  if (job.retried) labels.push('Asking again (answer was messy)');
+  labels.push('Check & organise');
+  const retryIdx = job.retried ? 3 : -1;
+  const last = labels.length - 1;
+  let cur = 0;
+  if (stage === 'analyzing' || stage === 'thinking') cur = 1;
+  else if (stage === 'writing') cur = 2;
+  else if (stage === 'retrying') cur = retryIdx;
+  else if (stage === 'merging') cur = last;
+  // After a retry the model thinks and writes again: that all counts as the retry step
+  if (job.retried && (stage === 'thinking' || stage === 'writing')) cur = retryIdx;
+  return labels.map((label, i) => ({
+    label,
+    state: i < cur ? 'done' : i === cur ? 'current' : 'pending',
+    detail:
+      i === cur && stage === 'writing' && found
+        ? `${found.units} unit${found.units === 1 ? '' : 's'} · ${found.topics} topic${found.topics === 1 ? '' : 's'} so far`
+        : undefined,
+  }));
+}
+
 export default function SyllabusImportScreen() {
   const colors = useThemeColors();
   const router = useRouter();
@@ -63,7 +90,11 @@ export default function SyllabusImportScreen() {
   const savedRef = useRef(false); // set once subjects are created, so leaving needs no confirm
 
   // Flow states
-  const [step, setStep] = useState<'picker' | 'processing' | 'review'>('picker');
+  // The import runs in a module-level job, so it survives leaving this screen
+  const job = useSyncExternalStore(subscribe, getSyllabusJob);
+  const [step, setStep] = useState<'picker' | 'processing' | 'review'>(
+    getSyllabusJob().status === 'idle' ? 'picker' : 'processing',
+  );
   const [pastedText, setPastedText] = useState('');
   const [isPasting, setIsPasting] = useState(false);
 
@@ -71,27 +102,20 @@ export default function SyllabusImportScreen() {
   const [showKeySheet, setShowKeySheet] = useState(false);
   const pendingSourceRef = useRef<SyllabusSource | null>(null);
 
-  // Processing state
-  const [progress, setProgress] = useState<SyllabusImportProgress>({
-    stage: 'reading',
-    current: 0,
-    total: 1,
-    message: 'Starting syllabus import...',
-  });
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorDetail, setErrorDetail] = useState<string | null>(null); // raw error, for debugging
-  // Elapsed seconds for the current AI call; restarts whenever progress moves on
-  const [elapsedSec, setElapsedSec] = useState(0);
+  // Only used while photos are being resized, before the job starts
+  const [prep, setPrep] = useState({ message: 'Preparing photos...', current: 0, total: 1 });
+
+  // Whole-import elapsed time, ticking once a second while the job runs
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (step !== 'processing' || errorMessage) return;
-    const start = Date.now();
-    setElapsedSec(0);
-    const tick = setInterval(
-      () => setElapsedSec(Math.floor((Date.now() - start) / 1000)),
-      1000,
-    );
+    if (job.status !== 'running') return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(tick);
-  }, [step, errorMessage, progress.stage, progress.current]);
+  }, [job.status]);
+  const elapsedSec =
+    job.startedAt === 0
+      ? 0
+      : Math.max(0, Math.floor(((job.status === 'running' ? now : job.endedAt) - job.startedAt) / 1000));
 
   // Review state
   const [subjects, setSubjects] = useState<EditableSubject[]>([]);
@@ -104,10 +128,37 @@ export default function SyllabusImportScreen() {
       e.preventDefault();
       Alert.alert('Discard this syllabus?', 'Your review edits will be lost.', [
         { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            clearSyllabusJob();
+            navigation.dispatch(e.data.action);
+          },
+        },
       ]);
     });
   }, [navigation, step]);
+
+  // When the job finishes (also if it finished while we were away), turn its result into review items
+  useEffect(() => {
+    if (step !== 'processing' || job.status !== 'done' || !job.result) return;
+    setSubjects(
+      job.result.map((s) => ({
+        id: newId(),
+        selected: true,
+        name: s.name,
+        code: s.code || '',
+        units: s.units.map((u) => ({
+          id: newId(),
+          name: u.name,
+          topics: u.topics.map((t) => ({ id: newId(), name: t.name, details: t.details || undefined })),
+        })),
+      })),
+    );
+    setStep('review');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [step, job.status, job.result]);
 
   // 1. Check API key before running import
   const startImportWithSource = async (source: SyllabusSource) => {
@@ -130,59 +181,11 @@ export default function SyllabusImportScreen() {
     }
   };
 
-  // 2. Main import execution
-  const runImport = async (source: SyllabusSource) => {
+  // 2. Hand the source to the background job; the screen just watches it
+  const runImport = (source: SyllabusSource) => {
+    pendingSourceRef.current = source; // kept so "Try again" can re-run it
     setStep('processing');
-    setErrorMessage(null);
-    setErrorDetail(null);
-
-    const apiSettings = await getApiSettings();
-
-    try {
-      const result = await importSyllabus({
-        source,
-        provider: apiSettings.provider,
-        apiKey: apiSettings.apiKey,
-        modelId: apiSettings.modelId,
-        pdfWorker: source.type === 'pdf' ? await ensureWorker() : undefined,
-        onProgress: (p) => {
-          setProgress(p);
-          showProgress('Reading syllabus', p.message);
-        },
-      });
-
-      if (!result.ok) {
-        finish("Couldn't finish reading", (result.friendlyError || result.error) + ' Open PYQed to retry.');
-        setErrorMessage(result.friendlyError || result.error);
-        setErrorDetail(result.error);
-        return;
-      }
-
-      // Convert raw subjects into editable review items
-      const editable: EditableSubject[] = result.subjects.map((s) => ({
-        id: newId(),
-        selected: true,
-        name: s.name,
-        code: s.code || '',
-        units: s.units.map((u) => ({
-          id: newId(),
-          name: u.name,
-          topics: u.topics.map((t) => ({
-            id: newId(),
-            name: t.name,
-            details: t.details || undefined,
-          })),
-        })),
-      }));
-
-      setSubjects(editable);
-      setStep('review');
-      finish('Syllabus ready to review', 'Open PYQed to check the subjects.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err: any) {
-      finish("Couldn't finish reading", err?.message || 'Something went wrong.');
-      setErrorMessage(err?.message || 'Failed to import syllabus.');
-    }
+    startSyllabusJob(source, source.type === 'pdf' ? ensureWorker : undefined);
   };
 
   // Source Pickers
@@ -207,10 +210,9 @@ export default function SyllabusImportScreen() {
       const picked = await pickPhotos(
         (n) => {
           setStep('processing');
-          setProgress({ stage: 'reading', current: 0, total: n, message: 'Preparing photos...' });
+          setPrep({ current: 0, total: n, message: 'Preparing photos...' });
         },
-        (i, n) =>
-          setProgress({ stage: 'reading', current: i, total: n, message: `Preparing photo ${i} of ${n}...` }),
+        (i, n) => setPrep({ current: i, total: n, message: `Preparing photo ${i} of ${n}...` }),
       );
       if (!picked) return;
       if (picked.base64s.length === 0) {
@@ -358,6 +360,7 @@ export default function SyllabusImportScreen() {
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     savedRef.current = true;
+    clearSyllabusJob();
     Alert.alert(
       toSave.length > 1 ? 'Subjects created' : 'Subject created',
       `Created ${toSave.length} subject${toSave.length > 1 ? 's' : ''}.`,
@@ -576,7 +579,7 @@ export default function SyllabusImportScreen() {
       {/* --- Step 2: Processing State --- */}
       {step === 'processing' && (
         <View style={styles.centerContent}>
-          {errorMessage ? (
+          {job.status === 'error' ? (
             <View
               style={[
                 styles.errorCard,
@@ -593,9 +596,9 @@ export default function SyllabusImportScreen() {
                   { color: colors.textSecondary, textAlign: 'center' },
                 ]}
               >
-                {errorMessage}
+                {job.error}
               </Text>
-              {errorDetail && errorDetail !== errorMessage && (
+              {job.errorDetail && job.errorDetail !== job.error && (
                 <Text
                   style={{
                     color: colors.textSecondary,
@@ -604,7 +607,7 @@ export default function SyllabusImportScreen() {
                     marginTop: Spacing.sm,
                   }}
                 >
-                  {errorDetail}
+                  {job.errorDetail}
                 </Text>
               )}
               <View style={styles.errorBtnRow}>
@@ -613,7 +616,10 @@ export default function SyllabusImportScreen() {
                     styles.outlineBtn,
                     { borderColor: colors.border, backgroundColor: colors.surface },
                   ]}
-                  onPress={() => setStep('picker')}
+                  onPress={() => {
+                    clearSyllabusJob();
+                    setStep('picker');
+                  }}
                 >
                   <Text style={{ color: colors.text, fontWeight: '600' }}>
                     Choose another file
@@ -622,9 +628,11 @@ export default function SyllabusImportScreen() {
                 <TouchableOpacity
                   style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
                   onPress={() => {
-                    if (pendingSourceRef.current) {
-                      runImport(pendingSourceRef.current);
+                    const src = job.source ?? pendingSourceRef.current;
+                    if (src) {
+                      runImport(src);
                     } else {
+                      clearSyllabusJob();
                       setStep('picker');
                     }
                   }}
@@ -638,12 +646,25 @@ export default function SyllabusImportScreen() {
               </View>
             </View>
           ) : (
-            <ImportProgress
-              message={progress.message}
-              elapsedSec={elapsedSec}
-              current={progress.current}
-              total={progress.total}
-            />
+            job.status === 'idle' ? (
+              <ImportProgress
+                title={prep.message}
+                elapsedSec={0}
+                current={prep.current}
+                total={prep.total}
+              />
+            ) : (
+              <ImportProgress
+                title={job.progress.stage === 'reading' ? job.progress.message : 'Analyzing syllabus...'}
+                elapsedSec={elapsedSec}
+                steps={syllabusSteps(job)}
+                phrases={SYLLABUS_PHRASES}
+                peek={job.progress.stage === 'thinking' ? job.progress.peek : undefined}
+                canLeave={job.status === 'running' && job.progress.stage !== 'reading'}
+                current={job.progress.stage === 'reading' ? job.progress.current : 0}
+                total={job.progress.stage === 'reading' ? job.progress.total : 0}
+              />
+            )
           )}
         </View>
       )}

@@ -786,7 +786,7 @@ export default function PaperImportScreen() {
             </View>
           ) : (
             <ImportProgress
-              message={progress.message}
+              title={progress.message}
               elapsedSec={elapsedSec}
               current={progress.current}
               total={progress.total}
@@ -799,7 +799,7 @@ export default function PaperImportScreen() {
       {step === 'labelling' && (
         <View style={styles.centerContent}>
           <ImportProgress
-            message={progress.message || 'Labelling topics...'}
+            title={progress.message || 'Labelling topics...'}
             elapsedSec={elapsedSec}
             current={progress.current}
             total={progress.total}

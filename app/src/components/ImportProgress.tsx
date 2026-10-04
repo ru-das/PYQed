@@ -1,30 +1,119 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 
+export type ProgressStep = { label: string; state: 'done' | 'current' | 'pending'; detail?: string };
+
 type Props = {
-  message: string;
+  title: string;
   elapsedSec: number;
+  steps?: ProgressStep[];
+  /** Fun rotating lines under the title (shuffled, a new one every few seconds) */
+  phrases?: string[];
+  /** Tail of the model's own thinking, shown as one faded italic line */
+  peek?: string;
+  /** Tells the user they can leave this screen while the import keeps running */
+  canLeave?: boolean;
   current?: number;
   total?: number;
 };
 
-/** Shared "AI is working" screen: big running timer, live message, optional page bar. */
-export function ImportProgress({ message, elapsedSec, current = 0, total = 0 }: Props) {
-  const colors = useThemeColors();
-  const pulse = useRef(new Animated.Value(1)).current;
+/** Phrases for the syllabus import. Just for fun, in the spirit of a coding agent's spinner words. */
+export const SYLLABUS_PHRASES = [
+  'Hunting for unit headings...',
+  'Squinting at the tables...',
+  'Ignoring the book list...',
+  'Untangling sub-topics...',
+  'Counting topics twice...',
+  'Asking Gemma nicely...',
+  'Skipping the course outcomes...',
+  'Matching topics to units...',
+  'Reading between the table lines...',
+  'Double-checking Unit 3...',
+  'Sharpening imaginary pencils...',
+  'Decoding the credit hours...',
+  'Sorting modules from marginalia...',
+  'Copying names exactly, as promised...',
+  'Not inventing any topics...',
+  'Deciphering the fine print...',
+  'Finding where Unit 1 ends...',
+  'Flipping through the syllabus...',
+  'Highlighting the important bits...',
+  'Making a study map...',
+  'Turning tables into topics...',
+  'Dusting off the semester plan...',
+  'Spotting the lab sessions...',
+  'Reading the footnotes so you do not have to...',
+  'Lining up units in order...',
+  'Pondering prerequisites...',
+  'Cross-checking subject codes...',
+  'Neatly filing every topic...',
+  'Warming up the question bank...',
+  'Almost like having a topper friend...',
+];
 
-  // Gentle pulse on the dot so the user can see the call is still alive
+// Fisher-Yates, so each import shows the lines in a different order
+function shuffled<T>(list: T[]): T[] {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Shared "AI is working" screen: looping scan animation, live step list, elapsed time. */
+export function ImportProgress({
+  title,
+  elapsedSec,
+  steps,
+  phrases,
+  peek,
+  canLeave,
+  current = 0,
+  total = 0,
+}: Props) {
+  const colors = useThemeColors();
+  const scan = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
+  const fade = useRef(new Animated.Value(1)).current;
+  const [order] = useState(() => (phrases ? shuffled(phrases) : []));
+  const [phraseIdx, setPhraseIdx] = useState(0);
+
+  // Scan line sweeping down the page icon, forever
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 0.25, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(scan, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(scan, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    const dot = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.25, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
       ]),
     );
     loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+    dot.start();
+    return () => {
+      loop.stop();
+      dot.stop();
+    };
+  }, [scan, pulse]);
+
+  // New phrase every 3 s with a quick fade out/in
+  useEffect(() => {
+    if (order.length < 2) return;
+    const t = setInterval(() => {
+      Animated.timing(fade, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+        setPhraseIdx((i) => (i + 1) % order.length);
+        Animated.timing(fade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      });
+    }, 3000);
+    return () => clearInterval(t);
+  }, [order, fade]);
 
   const m = Math.floor(elapsedSec / 60);
   const s = String(elapsedSec % 60).padStart(2, '0');
@@ -32,13 +121,33 @@ export function ImportProgress({ message, elapsedSec, current = 0, total = 0 }: 
 
   return (
     <View style={styles.wrap}>
-      <View style={[styles.timerPanel, { backgroundColor: colors.chip }]}>
-        <Animated.View style={[styles.dot, { backgroundColor: colors.accent, opacity: pulse }]} />
-        <Text style={[styles.timer, { color: colors.text }]} accessibilityLabel={`${elapsedSec} seconds elapsed`}>
-          {m}:{s}
-        </Text>
+      {/* Page icon with a scan line sweeping over it */}
+      <View style={[styles.page, { backgroundColor: colors.chip, borderColor: colors.border }]}>
+        <Ionicons name="document-text-outline" size={56} color={colors.textSecondary} />
+        <Animated.View
+          style={[
+            styles.scanLine,
+            {
+              backgroundColor: colors.accent,
+              transform: [{ translateY: scan.interpolate({ inputRange: [0, 1], outputRange: [0, 84] }) }],
+            },
+          ]}
+        />
       </View>
-      <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+
+      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+      {order.length > 0 && (
+        <Animated.Text style={[styles.phrase, { color: colors.textSecondary, opacity: fade }]}>
+          {order[phraseIdx]}
+        </Animated.Text>
+      )}
+      <Text
+        style={[styles.elapsed, { color: colors.textSecondary }]}
+        accessibilityLabel={`${elapsedSec} seconds elapsed`}
+      >
+        Elapsed time: {m}:{s}
+      </Text>
+
       {showBar && (
         <View style={styles.barRow}>
           <View style={[styles.track, { backgroundColor: colors.border }]}>
@@ -54,25 +163,97 @@ export function ImportProgress({ message, elapsedSec, current = 0, total = 0 }: 
           </Text>
         </View>
       )}
+
+      {steps && (
+        <View style={[styles.steps, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {steps.map((st) => (
+            <View key={st.label} style={styles.stepRow}>
+              {st.state === 'done' ? (
+                <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
+              ) : st.state === 'current' ? (
+                <Animated.View style={[styles.dotBox, { opacity: pulse }]}>
+                  <View style={[styles.dot, { backgroundColor: colors.accent }]} />
+                </Animated.View>
+              ) : (
+                <Ionicons name="ellipse-outline" size={20} color={colors.border} />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: st.state === 'pending' ? colors.textSecondary : colors.text,
+                    fontWeight: st.state === 'current' ? '700' : '500',
+                    fontSize: FontSize.body - 1,
+                  }}
+                >
+                  {st.label}
+                </Text>
+                {st.state === 'current' && st.detail ? (
+                  <Text style={[styles.detail, { color: colors.textSecondary }]}>{st.detail}</Text>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {peek ? (
+        <Text style={[styles.peek, { color: colors.textSecondary }]} numberOfLines={2}>
+          …{peek}
+        </Text>
+      ) : null}
+
+      {canLeave && (
+        <View style={[styles.hint, { backgroundColor: colors.accent + '15', borderColor: colors.accent }]}>
+          <Ionicons name="information-circle-outline" size={20} color={colors.accent} />
+          <Text style={[styles.hintText, { color: colors.text }]}>
+            Tables can take Gemma a few minutes. You can leave this screen and do something else; we'll keep
+            going and notify you when it's ready.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: Spacing.md, width: '100%', paddingHorizontal: Spacing.lg },
-  timerPanel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+  page: {
+    width: 96,
+    height: 96,
     borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  timer: { fontSize: 48, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  message: { fontSize: FontSize.h3, fontWeight: '700', textAlign: 'center' },
+  // Sits at the top of the page box; translateY moves it down and back
+  scanLine: { position: 'absolute', top: 6, left: 8, right: 8, height: 3, borderRadius: 2 },
+  title: { fontSize: FontSize.h3, fontWeight: '700', textAlign: 'center' },
+  phrase: { fontSize: FontSize.body, textAlign: 'center', minHeight: 22 },
+  elapsed: { fontSize: FontSize.caption, fontVariant: ['tabular-nums'] },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, width: '100%' },
   track: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
   fill: { height: 6, borderRadius: 3 },
   count: { fontSize: FontSize.caption, fontVariant: ['tabular-nums'] },
+  steps: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: BorderRadius.card,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  dotBox: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  detail: { fontSize: FontSize.caption, marginTop: 2 },
+  peek: { fontSize: FontSize.caption, fontStyle: 'italic', textAlign: 'center', opacity: 0.7 },
+  hint: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    alignItems: 'flex-start',
+  },
+  hintText: { flex: 1, fontSize: FontSize.caption + 1, lineHeight: 20 },
 });

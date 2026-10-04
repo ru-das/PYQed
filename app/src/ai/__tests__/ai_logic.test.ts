@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { extractJSON, chatCompletionsUrl } from '../client';
+import { extractJSON, chatCompletionsUrl, parseSSE } from '../client';
 import {
   validateRepeatGroups,
   deriveQuestionType,
@@ -381,5 +381,21 @@ describe('chatCompletionsUrl', () => {
       chatCompletionsUrl(' https://x/v1/chat/completions '),
       'https://x/v1/chat/completions',
     );
+  });
+});
+
+describe('parseSSE', () => {
+  it('parses complete data lines and keeps a split line for the next chunk', () => {
+    const a = parseSSE('data: {"a":1}\n\ndata: {"b":');
+    assert.deepStrictEqual(a.events, [{ a: 1 }]);
+    assert.strictEqual(a.rest, 'data: {"b":');
+    const b = parseSSE(a.rest + '2}\n\n');
+    assert.deepStrictEqual(b.events, [{ b: 2 }]);
+    assert.strictEqual(b.rest, '');
+  });
+
+  it('skips non-data lines and bad JSON', () => {
+    const r = parseSSE(': keep-alive\ndata: not json\ndata: {"ok":true}\n');
+    assert.deepStrictEqual(r.events, [{ ok: true }]);
   });
 });

@@ -26,7 +26,8 @@ export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const MAX_PAGES_PER_IMPORT = 30;
 
 // AI client settings
-export const AI_TIMEOUT_MS = 300_000; // syllabus pages can take well over 2 min
+export const AI_TIMEOUT_MS = 720_000; // hard cap per call: thinking on a table page can take many minutes
+export const AI_IDLE_TIMEOUT_MS = 90_000; // streaming only: give up if no tokens arrive for this long
 
 // Image processing settings
 export const IMAGE_LONG_EDGE = 1600;
