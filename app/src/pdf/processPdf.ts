@@ -5,7 +5,6 @@ import { PdfWorkerHandle, PageResult } from './PdfWorker';
 export type ProcessedPdfPage = {
   pageNumber: number;
   result: PageResult;
-  timeMs: number;
   error?: string;
 };
 
@@ -28,7 +27,6 @@ export type ProcessPdfResult = {
   pageCount: number;
   processedCount: number;
   pages: ProcessedPdfPage[];
-  totalTimeMs: number;
 };
 
 /** Read a PDF file and load it into the worker. Pages are rendered later, one at a time, with worker.getPage. */
@@ -58,7 +56,6 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
     onProgress,
   } = options;
 
-  const startTime = Date.now();
   const { pageCount } = await openPdf(fileUri, worker, onProgress);
 
   const totalToProcess = Math.min(pageCount, maxPages);
@@ -71,32 +68,17 @@ export async function processPdf(options: ProcessPdfOptions): Promise<ProcessPdf
       total: totalToProcess,
     });
 
-    const pageStart = Date.now();
     try {
-      const result = await worker.getPage(pageNum, longEdge);
-      pages.push({
-        pageNumber: pageNum,
-        result,
-        timeMs: Date.now() - pageStart,
-      });
+      pages.push({ pageNumber: pageNum, result: await worker.getPage(pageNum, longEdge) });
     } catch (err: any) {
       // Record page error without aborting remaining pages
       pages.push({
         pageNumber: pageNum,
-        result: {
-          type: 'image',
-          base64: '',
-        },
-        timeMs: Date.now() - pageStart,
+        result: { type: 'image', base64: '' },
         error: err?.message || `Failed to process page ${pageNum}`,
       });
     }
   }
 
-  return {
-    pageCount,
-    processedCount: pages.length,
-    pages,
-    totalTimeMs: Date.now() - startTime,
-  };
+  return { pageCount, processedCount: pages.length, pages };
 }

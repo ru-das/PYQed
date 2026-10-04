@@ -17,11 +17,6 @@ export type PdfWorkerHandle = {
   getPage: (pageNumber: number, longEdge?: number) => Promise<PageResult>;
 };
 
-export type PdfWorkerProps = {
-  onReady?: () => void;
-  onError?: (error: string) => void;
-};
-
 const CHUNK_SIZE = 512 * 1024; // 512 KB chunks for large base64 strings
 // Android can kill the WebView while the app is in the background; without a timeout the import would wait forever.
 const LOAD_TIMEOUT_MS = 60_000;
@@ -29,8 +24,8 @@ const PAGE_TIMEOUT_MS = 60_000;
 // The WebView has to parse ~1 MB of pdf.js before it says "ready"; if it never does, fail instead of hanging.
 const READY_TIMEOUT_MS = 30_000;
 
-export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
-  function PdfWorker({ onReady, onError }, ref) {
+export const PdfWorker = forwardRef<PdfWorkerHandle>(
+  function PdfWorker(_props, ref) {
     const webViewRef = useRef<WebView>(null);
     // A ref, not state: the importer holds on to the handle from the first render, so a state value
     // captured in its closure would stay "false" forever and every call would wait for nothing.
@@ -85,7 +80,6 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
             isReadyRef.current = true;
             readyResolvers.current.forEach((resolve) => resolve());
             readyResolvers.current = [];
-            onReady?.();
             break;
           }
 
@@ -103,7 +97,6 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
               loadPromiseRef.current.reject(err);
               loadPromiseRef.current = null;
             }
-            onError?.(err.message);
             break;
           }
 
@@ -127,7 +120,7 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
           }
         }
       },
-      [onReady, onError]
+      []
     );
 
     useImperativeHandle(
