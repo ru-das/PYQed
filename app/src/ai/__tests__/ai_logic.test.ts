@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { extractJSON } from '../client';
+import { extractJSON, chatCompletionsUrl } from '../client';
 import {
   validateRepeatGroups,
   deriveQuestionType,
@@ -368,5 +368,18 @@ describe('repeat batching', () => {
     const out = groupsByTopic([['Q1', 'Q2'], ['Q2', 'Q3'], ['Q3', 'Q4']], topicOf);
     assert.deepStrictEqual(out.get('a'), [['Q1', 'Q2']]);
     assert.deepStrictEqual(out.get('b'), [['Q3', 'Q4']]);
+  });
+});
+
+describe('chatCompletionsUrl', () => {
+  it('appends /chat/completions and tolerates trailing slashes', () => {
+    assert.strictEqual(chatCompletionsUrl('https://x/v1'), 'https://x/v1/chat/completions');
+    assert.strictEqual(chatCompletionsUrl('https://x/v1/'), 'https://x/v1/chat/completions');
+  });
+  it('keeps a URL that already ends in /chat/completions', () => {
+    assert.strictEqual(
+      chatCompletionsUrl(' https://x/v1/chat/completions '),
+      'https://x/v1/chat/completions',
+    );
   });
 });

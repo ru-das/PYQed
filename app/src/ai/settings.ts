@@ -11,6 +11,30 @@ export type ApiSettings = {
   provider: Provider;
   apiKey: string;
   modelId: string;
+  /** Only used by the 'openai' (OpenAI-compatible) provider. */
+  baseUrl: string;
+};
+
+// Where each provider keeps its key and model, and its default model
+const PROVIDER_STORE: Record<
+  Provider,
+  { key: string; model: string; defaultModel: string }
+> = {
+  aistudio: {
+    key: SECURE_STORE_KEYS.aiStudioKey,
+    model: SECURE_STORE_KEYS.aiStudioModel,
+    defaultModel: DEFAULT_MODEL_AISTUDIO,
+  },
+  openrouter: {
+    key: SECURE_STORE_KEYS.openRouterKey,
+    model: SECURE_STORE_KEYS.openRouterModel,
+    defaultModel: DEFAULT_MODEL_OPENROUTER,
+  },
+  openai: {
+    key: SECURE_STORE_KEYS.openaiKey,
+    model: SECURE_STORE_KEYS.openaiModel,
+    defaultModel: '', // the user must type one
+  },
 };
 
 /**
@@ -18,43 +42,34 @@ export type ApiSettings = {
  */
 export async function getApiSettings(): Promise<ApiSettings> {
   try {
-    const savedProvider = (await SecureStore.getItemAsync(
-      SECURE_STORE_KEYS.provider,
-    )) as Provider | null;
-    const provider = savedProvider || DEFAULT_PROVIDER;
+    const saved = await SecureStore.getItemAsync(SECURE_STORE_KEYS.provider);
+    const provider: Provider =
+      saved && saved in PROVIDER_STORE ? (saved as Provider) : DEFAULT_PROVIDER;
+    const store = PROVIDER_STORE[provider];
 
-    const keyStoreKey =
-      provider === 'aistudio'
-        ? SECURE_STORE_KEYS.aiStudioKey
-        : SECURE_STORE_KEYS.openRouterKey;
-    const modelStoreKey =
-      provider === 'aistudio'
-        ? SECURE_STORE_KEYS.aiStudioModel
-        : SECURE_STORE_KEYS.openRouterModel;
+    const apiKey = (await SecureStore.getItemAsync(store.key)) || '';
+    const modelId = (await SecureStore.getItemAsync(store.model)) || store.defaultModel;
+    const baseUrl = (await SecureStore.getItemAsync(SECURE_STORE_KEYS.openaiBaseUrl)) || '';
 
-    const apiKey = (await SecureStore.getItemAsync(keyStoreKey)) || '';
-    const defaultModel =
-      provider === 'aistudio'
-        ? DEFAULT_MODEL_AISTUDIO
-        : DEFAULT_MODEL_OPENROUTER;
-    const modelId = (await SecureStore.getItemAsync(modelStoreKey)) || defaultModel;
-
-    return { provider, apiKey, modelId };
+    return { provider, apiKey, modelId, baseUrl };
   } catch (err) {
     console.warn('Failed to load API settings from SecureStore', err);
     return {
       provider: DEFAULT_PROVIDER,
       apiKey: '',
       modelId: DEFAULT_MODEL_AISTUDIO,
+      baseUrl: '',
     };
   }
 }
 
 /**
- * Checks if a valid API key exists for the active provider.
+ * Checks if the active provider is ready to use.
+ * OpenAI-compatible servers may run without a key (e.g. a local server), so they only need a base URL.
  */
 export async function hasApiKey(): Promise<boolean> {
-  const { apiKey } = await getApiSettings();
+  const { provider, apiKey, baseUrl } = await getApiSettings();
+  if (provider === 'openai') return baseUrl.trim().length > 0;
   return apiKey.trim().length > 0;
 }
 
@@ -65,26 +80,28 @@ export async function saveApiSettings(settings: {
   provider: Provider;
   apiKey: string;
   modelId?: string;
+  baseUrl?: string;
 }): Promise<void> {
-  const { provider, apiKey, modelId } = settings;
+  const { provider, apiKey, modelId, baseUrl } = settings;
+  const store = PROVIDER_STORE[provider];
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.provider, provider);
 
-  const keyStoreKey =
-    provider === 'aistudio'
-      ? SECURE_STORE_KEYS.aiStudioKey
-      : SECURE_STORE_KEYS.openRouterKey;
   if (apiKey.trim()) {
-    await SecureStore.setItemAsync(keyStoreKey, apiKey.trim());
+    await SecureStore.setItemAsync(store.key, apiKey.trim());
   } else {
-    await SecureStore.deleteItemAsync(keyStoreKey);
+    await SecureStore.deleteItemAsync(store.key);
   }
 
   if (modelId && modelId.trim()) {
-    const modelStoreKey =
-      provider === 'aistudio'
-        ? SECURE_STORE_KEYS.aiStudioModel
-        : SECURE_STORE_KEYS.openRouterModel;
-    await SecureStore.setItemAsync(modelStoreKey, modelId.trim());
+    await SecureStore.setItemAsync(store.model, modelId.trim());
+  }
+
+  if (baseUrl !== undefined && provider === 'openai') {
+    if (baseUrl.trim()) {
+      await SecureStore.setItemAsync(SECURE_STORE_KEYS.openaiBaseUrl, baseUrl.trim());
+    } else {
+      await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.openaiBaseUrl);
+    }
   }
 }
 
@@ -94,12 +111,17 @@ export async function setActiveProvider(provider: Provider): Promise<ApiSettings
   return getApiSettings();
 }
 
-/** Change just the key and/or model of the active provider. */
-export async function updateApiSettings(patch: { apiKey?: string; modelId?: string }): Promise<void> {
+/** Change just the key, model and/or base URL of the active provider. */
+export async function updateApiSettings(patch: {
+  apiKey?: string;
+  modelId?: string;
+  baseUrl?: string;
+}): Promise<void> {
   const cur = await getApiSettings();
   await saveApiSettings({
     provider: cur.provider,
     apiKey: patch.apiKey ?? cur.apiKey,
     modelId: patch.modelId ?? cur.modelId,
+    baseUrl: patch.baseUrl ?? cur.baseUrl,
   });
 }

@@ -25,7 +25,7 @@ Scan the QR code with Expo Go on your Android or iOS phone.
 
 ## Architecture
 
-Everything runs on the phone. No backend. AI calls use **your own free Google AI Studio API key** (or OpenRouter) and Gemma 4.
+Everything runs on the phone. No backend. AI calls use **your own free Google AI Studio API key** (or OpenRouter, or any OpenAI-compatible provider) and Gemma 4.
 
 ## License
 

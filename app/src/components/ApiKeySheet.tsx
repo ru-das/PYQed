@@ -15,13 +15,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
+import { ProviderSelect } from './ProviderSelect';
 import {
   Provider,
   DEFAULT_PROVIDER,
   DEFAULT_MODEL_AISTUDIO,
-  DEFAULT_MODEL_OPENROUTER,
+  PROVIDER_LABELS,
 } from '../config';
-import { getApiSettings, saveApiSettings } from '../ai/settings';
+import { getApiSettings, saveApiSettings, setActiveProvider } from '../ai/settings';
 import { generateJSON } from '../ai/client';
 
 export type ApiKeySheetProps = {
@@ -36,6 +37,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
   const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
   const [apiKey, setApiKey] = useState('');
   const [modelId, setModelId] = useState(DEFAULT_MODEL_AISTUDIO);
+  const [baseUrl, setBaseUrl] = useState('');
   const [isKeyVisible, setIsKeyVisible] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -50,27 +52,30 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
         setProvider(settings.provider);
         setApiKey(settings.apiKey);
         setModelId(settings.modelId);
+        setBaseUrl(settings.baseUrl);
         setTestResult(null);
       });
     }
   }, [visible]);
 
-  const handleProviderChange = (newProvider: Provider) => {
+  // Switching loads that provider's own saved key / model / base URL
+  const handleProviderChange = async (newProvider: Provider) => {
     if (newProvider === provider) return;
     setProvider(newProvider);
     setTestResult(null);
-    setModelId(
-      newProvider === 'aistudio'
-        ? DEFAULT_MODEL_AISTUDIO
-        : DEFAULT_MODEL_OPENROUTER,
-    );
+    const cfg = await setActiveProvider(newProvider);
+    setApiKey(cfg.apiKey);
+    setModelId(cfg.modelId);
+    setBaseUrl(cfg.baseUrl);
   };
 
   const handleTestKey = async () => {
-    if (!apiKey.trim()) {
+    if (!canTest) {
       setTestResult({
         success: false,
-        message: 'Please paste your API key first.',
+        message: isOpenAI
+          ? 'Please enter the base URL and model ID first.'
+          : 'Please paste your API key first.',
       });
       return;
     }
@@ -85,6 +90,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
         provider,
         apiKey: apiKey.trim(),
         modelId: modelId.trim(),
+        baseUrl: baseUrl.trim(),
       });
 
       if (result.ok) {
@@ -97,6 +103,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
           provider,
           apiKey: apiKey.trim(),
           modelId: modelId.trim(),
+          baseUrl: baseUrl.trim(),
         });
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -117,16 +124,22 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
   };
 
   const handleContinue = async () => {
-    if (!apiKey.trim()) return;
+    if (!canContinue) return;
     await saveApiSettings({
       provider,
       apiKey: apiKey.trim(),
       modelId: modelId.trim(),
+      baseUrl: baseUrl.trim(),
     });
     onKeyReady(provider, apiKey.trim(), modelId.trim());
   };
 
-  const canContinue = apiKey.trim().length > 0;
+  // OpenAI-compatible servers may be keyless, but need a base URL and a model ID
+  const isOpenAI = provider === 'openai';
+  const canTest = isOpenAI
+    ? baseUrl.trim().length > 0 && modelId.trim().length > 0
+    : apiKey.trim().length > 0;
+  const canContinue = canTest;
 
   return (
     <Modal
@@ -151,7 +164,9 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.title, { color: colors.text }]}>
-                Add a free Google AI Studio key
+                {provider === 'aistudio'
+                  ? 'Add a free Google AI Studio key'
+                  : `Connect ${PROVIDER_LABELS[provider]}`}
               </Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                 Required for AI to analyze syllabus and exam papers.
@@ -166,60 +181,51 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
             </TouchableOpacity>
           </View>
 
-          {/* Provider Toggle */}
-          <View
-            style={[
-              styles.segmentContainer,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                styles.segmentBtn,
-                provider === 'aistudio' && { backgroundColor: colors.accent },
-              ]}
-              onPress={() => handleProviderChange('aistudio')}
-              accessibilityLabel="Google AI Studio"
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  {
-                    color:
-                      provider === 'aistudio'
-                        ? colors.accentText
-                        : colors.textSecondary,
-                  },
-                ]}
-              >
-                Google AI Studio
+          <ProviderSelect value={provider} onChange={handleProviderChange} />
+
+          {isOpenAI && (
+            <>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                Any service with an OpenAI-style /chat/completions API. Pick a model that can read images.
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.segmentBtn,
-                provider === 'openrouter' && { backgroundColor: colors.accent },
-              ]}
-              onPress={() => handleProviderChange('openrouter')}
-              accessibilityLabel="OpenRouter"
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  {
-                    color:
-                      provider === 'openrouter'
-                        ? colors.accentText
-                        : colors.textSecondary,
-                  },
-                ]}
+              <View
+                style={[styles.inputRow, { backgroundColor: colors.card, borderColor: colors.border }]}
               >
-                OpenRouter
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  placeholder="Base URL (https://api.groq.com/openai/v1)"
+                  placeholderTextColor={colors.textSecondary}
+                  value={baseUrl}
+                  onChangeText={(t) => {
+                    setBaseUrl(t);
+                    setTestResult(null);
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+              </View>
+              <View
+                style={[styles.inputRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  placeholder="Model ID"
+                  placeholderTextColor={colors.textSecondary}
+                  value={modelId}
+                  onChangeText={(t) => {
+                    setModelId(t);
+                    setTestResult(null);
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+            </>
+          )}
 
           {/* 3 Steps */}
+          {!isOpenAI && (
           <View style={styles.stepsContainer}>
             <View style={styles.stepRow}>
               <View
@@ -233,7 +239,9 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
                 </Text>
               </View>
               <Text style={[styles.stepText, { color: colors.text }]}>
-                Sign in to Google AI Studio with your Google account
+                {provider === 'aistudio'
+                  ? 'Sign in to Google AI Studio with your Google account'
+                  : 'Sign in to OpenRouter'}
               </Text>
             </View>
 
@@ -286,6 +294,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
               </Text>
             </View>
           </View>
+          )}
 
           {/* Key Input */}
           <View
@@ -299,7 +308,9 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
               placeholder={
                 provider === 'aistudio'
                   ? 'Paste AI Studio Key (AIzaSy...)'
-                  : 'Paste OpenRouter Key (sk-or-...)'
+                  : provider === 'openrouter'
+                    ? 'Paste OpenRouter Key (sk-or-...)'
+                    : 'Paste API key (optional for local servers)'
               }
               placeholderTextColor={colors.textSecondary}
               value={apiKey}
@@ -361,7 +372,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
                 { borderColor: colors.border, backgroundColor: colors.card },
               ]}
               onPress={handleTestKey}
-              disabled={isTesting || !apiKey.trim()}
+              disabled={isTesting || !canTest}
               accessibilityLabel="Test API Key"
             >
               {isTesting ? (
@@ -444,22 +455,6 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  segmentContainer: {
-    flexDirection: 'row',
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    padding: 3,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: BorderRadius.button - 3,
-  },
-  segmentText: {
-    fontSize: FontSize.caption,
-    fontWeight: '600',
   },
   stepsContainer: {
     gap: Spacing.sm,

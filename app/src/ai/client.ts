@@ -1,8 +1,8 @@
 /**
- * AI client: calls Google AI Studio or OpenRouter with the configured model.
+ * AI client: calls Google AI Studio, OpenRouter, or any OpenAI-compatible server with the configured model.
  */
 
-import { AI_TIMEOUT_MS, Provider } from '../config';
+import { AI_TIMEOUT_MS, OPENROUTER_BASE_URL, Provider } from '../config';
 
 // A retry after an unreadable answer gets less time, so one bad page can't block the import for 10 minutes
 const RETRY_TIMEOUT_MS = 120_000;
@@ -15,6 +15,8 @@ export type GenerateJSONParams = {
   provider: Provider;
   apiKey: string;
   modelId: string;
+  /** OpenAI-compatible provider only. If omitted, the saved one from Settings is used. */
+  baseUrl?: string;
 };
 
 export type GenerateJSONResult<T = unknown> =
@@ -189,16 +191,28 @@ async function callGoogleAIStudio(
 }
 
 /**
- * Execute request to OpenRouter
+ * Turns a base URL like "https://api.groq.com/openai/v1" (with or without a trailing slash,
+ * or already ending in /chat/completions) into the full chat completions endpoint.
  */
-async function callOpenRouter(
+export function chatCompletionsUrl(baseUrl: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+}
+
+/**
+ * Execute request to any OpenAI-style /chat/completions server (OpenRouter, Groq, Together, ...)
+ */
+async function callOpenAICompatible(
+  baseUrl: string,
   apiKey: string,
   modelId: string,
   prompt: string,
   images: string[] = [],
+  withJsonMode: boolean = true,
   signal: AbortSignal,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ text: string; status: number; error?: string }> {
-  const url = 'https://openrouter.ai/api/v1/chat/completions';
+  const url = chatCompletionsUrl(baseUrl);
 
   const content: Array<
     | { type: 'text'; text: string }
@@ -215,19 +229,24 @@ async function callOpenRouter(
     });
   }
 
+  const body: Record<string, unknown> = {
+    model: modelId,
+    messages: [{ role: 'user', content }],
+    temperature: 0,
+  };
+  if (withJsonMode) {
+    body.response_format = { type: 'json_object' };
+  }
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      'X-Title': 'PYQed',
+      // Local servers (LM Studio, Ollama...) may not need a key
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      ...extraHeaders,
     },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: 'user', content }],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }),
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -263,7 +282,24 @@ export async function generateJSON<T = unknown>(
     };
   }
 
-  if (!params.apiKey || !params.apiKey.trim()) {
+  // OpenAI-compatible servers can be keyless (e.g. local); they need a base URL instead
+  let baseUrl = (params.baseUrl || '').trim();
+  if (params.provider === 'openai' && !baseUrl) {
+    // Imported lazily so this module stays free of native modules (it is unit-tested in Node)
+    const { getApiSettings } = await import('./settings');
+    baseUrl = (await getApiSettings()).baseUrl.trim();
+  }
+  if (params.provider === 'openai' && !baseUrl) {
+    return {
+      ok: false,
+      error: 'Missing base URL',
+      friendlyError: 'Add the provider\'s base URL in Settings.',
+      fatal: true,
+      timeMs: Date.now() - startTime,
+    };
+  }
+
+  if (params.provider !== 'openai' && (!params.apiKey || !params.apiKey.trim())) {
     return {
       ok: false,
       error: 'Missing API key',
@@ -294,15 +330,18 @@ export async function generateJSON<T = unknown>(
           withJsonMime,
           controller.signal,
         );
-      } else {
-        return await callOpenRouter(
-          params.apiKey.trim(),
-          params.modelId.trim(),
-          promptText,
-          params.images,
-          controller.signal,
-        );
       }
+      const isOpenRouter = params.provider === 'openrouter';
+      return await callOpenAICompatible(
+        isOpenRouter ? OPENROUTER_BASE_URL : baseUrl,
+        (params.apiKey || '').trim(),
+        params.modelId.trim(),
+        promptText,
+        params.images,
+        withJsonMime,
+        controller.signal,
+        isOpenRouter ? { 'X-Title': 'PYQed' } : {},
+      );
     } catch (err: any) {
       const msg = err?.message || String(err);
       // RN may surface our abort as a generic network error, so trust the flag
@@ -322,12 +361,15 @@ export async function generateJSON<T = unknown>(
   // Attempt 1
   let res = await runCall(params.prompt, true);
 
-  // If AI Studio failed because of responseMimeType, retry once without it
-  if (!res.text && res.error && params.provider === 'aistudio') {
-    const isMimeError =
-      res.error.toLowerCase().includes('responsemimetype') ||
-      res.error.toLowerCase().includes('mime_type');
-    if (isMimeError) {
+  // If the provider rejected JSON mode (responseMimeType / response_format), retry once without it
+  if (!res.text && res.error) {
+    const err = res.error.toLowerCase();
+    const isJsonModeError =
+      params.provider === 'aistudio'
+        ? err.includes('responsemimetype') || err.includes('mime_type')
+        : params.provider === 'openai' &&
+          (err.includes('response_format') || err.includes('json_object') || err.includes('json mode'));
+    if (isJsonModeError) {
       res = await runCall(params.prompt, false);
     }
   }

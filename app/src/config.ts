@@ -2,7 +2,14 @@
  * App-wide configuration constants.
  */
 
-export type Provider = 'aistudio' | 'openrouter';
+export type Provider = 'aistudio' | 'openrouter' | 'openai';
+
+/** Names shown in the provider dropdown. */
+export const PROVIDER_LABELS: Record<Provider, string> = {
+  aistudio: 'Google AI Studio',
+  openrouter: 'OpenRouter',
+  openai: 'OpenAI-compatible',
+};
 
 export const DEFAULT_PROVIDER: Provider = 'aistudio';
 
@@ -12,6 +19,8 @@ export const ALT_MODEL_AISTUDIO = 'gemma-4-31b-it';
 
 // OpenRouter — free Gemma 4 model
 export const DEFAULT_MODEL_OPENROUTER = 'google/gemma-4-26b-a4b-it:free';
+
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Import limits
 export const MAX_PAGES_PER_IMPORT = 30;
@@ -30,4 +39,7 @@ export const SECURE_STORE_KEYS = {
   openRouterKey: 'pyqed_openrouter_key',
   aiStudioModel: 'pyqed_aistudio_model',
   openRouterModel: 'pyqed_openrouter_model',
+  openaiKey: 'pyqed_openai_key',
+  openaiModel: 'pyqed_openai_model',
+  openaiBaseUrl: 'pyqed_openai_base_url',
 } as const;

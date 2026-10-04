@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Constants from 'expo-constants';
 import { Logo } from '../../src/components/Logo';
+import { ProviderSelect } from '../../src/components/ProviderSelect';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -25,7 +26,6 @@ import {
   DEFAULT_PROVIDER,
   DEFAULT_MODEL_AISTUDIO,
   ALT_MODEL_AISTUDIO,
-  DEFAULT_MODEL_OPENROUTER,
 } from '../../src/config';
 import { getApiSettings, setActiveProvider, updateApiSettings } from '../../src/ai/settings';
 import { generateJSON } from '../../src/ai/client';
@@ -36,6 +36,7 @@ export default function SettingsScreen() {
   const [provider, setProvider] = useState<Provider>(DEFAULT_PROVIDER);
   const [apiKey, setApiKey] = useState<string>('');
   const [modelId, setModelId] = useState<string>(DEFAULT_MODEL_AISTUDIO);
+  const [baseUrl, setBaseUrl] = useState<string>('');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isTesting, setIsTesting] = useState<boolean>(false);
@@ -51,6 +52,7 @@ export default function SettingsScreen() {
         setProvider(cfg.provider);
         setApiKey(cfg.apiKey);
         setModelId(cfg.modelId);
+        setBaseUrl(cfg.baseUrl);
       })
       .finally(() => setIsLoading(false));
   }, []);
@@ -62,6 +64,7 @@ export default function SettingsScreen() {
     const cfg = await setActiveProvider(newProvider);
     setApiKey(cfg.apiKey);
     setModelId(cfg.modelId);
+    setBaseUrl(cfg.baseUrl);
   };
 
   // Saved as you type, so there is no Save button to forget
@@ -69,6 +72,12 @@ export default function SettingsScreen() {
     setApiKey(text);
     setTestResult(null);
     updateApiSettings({ apiKey: text }).catch(() => {});
+  };
+
+  const handleSaveBaseUrl = (text: string) => {
+    setBaseUrl(text);
+    setTestResult(null);
+    updateApiSettings({ baseUrl: text }).catch(() => {});
   };
 
   const handleSaveModel = (text: string) => {
@@ -79,7 +88,13 @@ export default function SettingsScreen() {
 
   // Test API key
   const handleTestKey = async () => {
-    if (!apiKey.trim()) {
+    // OpenAI-compatible servers may be keyless, but need a base URL and a model
+    if (provider === 'openai') {
+      if (!baseUrl.trim() || !modelId.trim()) {
+        Alert.alert('Details needed', 'Enter the base URL and model ID to test.');
+        return;
+      }
+    } else if (!apiKey.trim()) {
       Alert.alert('API Key Required', 'Please enter an API key to test.');
       return;
     }
@@ -94,7 +109,8 @@ export default function SettingsScreen() {
         schemaName: '__test',
         provider,
         apiKey: apiKey.trim(),
-        modelId: modelId.trim() || (provider === 'aistudio' ? DEFAULT_MODEL_AISTUDIO : DEFAULT_MODEL_OPENROUTER),
+        modelId: modelId.trim(),
+        baseUrl: baseUrl.trim(),
       });
 
       if (result.ok) {
@@ -146,62 +162,37 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
           AI PROVIDER
         </Text>
-        <View
-          style={[
-            styles.segmentContainer,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <TouchableOpacity
-            style={[
-              styles.segmentBtn,
-              provider === 'aistudio' && {
-                backgroundColor: colors.accent,
-              },
-            ]}
-            onPress={() => handleSwitchProvider('aistudio')}
-            accessibilityLabel="Select Google AI Studio"
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                {
-                  color:
-                    provider === 'aistudio'
-                      ? colors.accentText
-                      : colors.textSecondary,
-                },
-              ]}
-            >
-              Google AI Studio
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.segmentBtn,
-              provider === 'openrouter' && {
-                backgroundColor: colors.accent,
-              },
-            ]}
-            onPress={() => handleSwitchProvider('openrouter')}
-            accessibilityLabel="Select OpenRouter"
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                {
-                  color:
-                    provider === 'openrouter'
-                      ? colors.accentText
-                      : colors.textSecondary,
-                },
-              ]}
-            >
-              OpenRouter
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <ProviderSelect value={provider} onChange={handleSwitchProvider} />
       </View>
+
+      {/* Section: Base URL (OpenAI-compatible only) */}
+      {provider === 'openai' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+            BASE URL
+          </Text>
+          <View
+            style={[
+              styles.inputRow,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder="https://api.groq.com/openai/v1"
+              placeholderTextColor={colors.textSecondary}
+              value={baseUrl}
+              onChangeText={handleSaveBaseUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+          </View>
+          <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+            Any service with an OpenAI-style /chat/completions API. Pick a model that can read images.
+          </Text>
+        </View>
+      )}
 
       {/* Section: API Key */}
       <View style={styles.section}>
@@ -209,9 +200,15 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
             API KEY
           </Text>
-          {provider === 'aistudio' && (
+          {provider !== 'openai' && (
             <TouchableOpacity
-              onPress={() => Linking.openURL('https://aistudio.google.com/apikey')}
+              onPress={() =>
+                Linking.openURL(
+                  provider === 'aistudio'
+                    ? 'https://aistudio.google.com/apikey'
+                    : 'https://openrouter.ai/keys',
+                )
+              }
               accessibilityLabel="Get free key"
             >
               <Text style={[styles.linkText, { color: colors.accent }]}>
@@ -232,7 +229,9 @@ export default function SettingsScreen() {
             placeholder={
               provider === 'aistudio'
                 ? 'Paste AI Studio Key (AIzaSy...)'
-                : 'Paste OpenRouter Key (sk-or-...)'
+                : provider === 'openrouter'
+                  ? 'Paste OpenRouter Key (sk-or-...)'
+                  : 'Paste API key (optional for local servers)'
             }
             placeholderTextColor={colors.textSecondary}
             value={apiKey}
@@ -444,23 +443,6 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: FontSize.caption,
-    fontWeight: '600',
-  },
-  segmentContainer: {
-    flexDirection: 'row',
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    padding: 3,
-    marginTop: Spacing.xs,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: BorderRadius.button - 3,
-  },
-  segmentText: {
-    fontSize: FontSize.caption + 1,
     fontWeight: '600',
   },
   inputRow: {
