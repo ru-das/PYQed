@@ -204,12 +204,7 @@ export default function SubjectScreen() {
   );
 
   const availableYears = distinctYears(subject.questions);
-  const hasActiveFilters =
-    Boolean(filters.unitId) ||
-    Boolean(filters.type) ||
-    Boolean(filters.marksRange) ||
-    filters.year !== undefined && filters.year !== null ||
-    Boolean(filters.needsReview);
+  const hasActiveFilters = Object.values(filters).some(Boolean);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
