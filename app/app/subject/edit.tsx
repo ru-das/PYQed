@@ -47,12 +47,9 @@ export default function EditSubject() {
       .map((u) => ({ ...u, name: u.name.trim(), topics: u.topics.map((t) => ({ ...t, name: t.name.trim() })).filter((t) => t.name) }))
       .filter((u) => u.name)
       .map((u, order) => ({ ...u, order }));
-    const unitIds = new Set(cleaned.map((u) => u.id));
     const topicIds = new Set(cleaned.flatMap((u) => u.topics.map((t) => t.id)));
     const questions = subject.questions.map((q) =>
-      q.topicId && topicIds.has(q.topicId)
-        ? q
-        : { ...q, topicId: null, unitId: q.unitId && unitIds.has(q.unitId) && !q.topicId ? q.unitId : null }
+      q.topicId && !topicIds.has(q.topicId) ? { ...q, topicId: null, unitId: null, topicConfidence: null } : q
     );
     await saveSubject({ ...subject, name: name.trim(), code: code.trim() || undefined, units: cleaned, questions });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
