@@ -34,26 +34,29 @@ const START: SyllabusImportProgress = {
 };
 const IDLE: SyllabusJob = { status: 'idle', startedAt: 0, endedAt: 0, progress: START };
 
-let job: SyllabusJob = IDLE;
-const listeners = new Set<() => void>();
+// Kept on globalThis so a dev hot reload (which re-runs this file) doesn't orphan a running import
+const store: { job: SyllabusJob; listeners: Set<() => void> } = ((globalThis as any).__pyqedSyllabusJob ??= {
+  job: IDLE,
+  listeners: new Set(),
+});
 
 function set(patch: Partial<SyllabusJob>) {
-  job = { ...job, ...patch };
-  listeners.forEach((fn) => fn());
+  store.job = { ...store.job, ...patch };
+  store.listeners.forEach((fn) => fn());
 }
 
-export const getSyllabusJob = () => job;
+export const getSyllabusJob = () => store.job;
 
 export function subscribe(fn: () => void) {
-  listeners.add(fn);
+  store.listeners.add(fn);
   return () => {
-    listeners.delete(fn);
+    store.listeners.delete(fn);
   };
 }
 
 export function clearSyllabusJob() {
-  job = IDLE;
-  listeners.forEach((fn) => fn());
+  store.job = IDLE;
+  store.listeners.forEach((fn) => fn());
 }
 
 /**
