@@ -3,7 +3,7 @@
  * Runs after a paper is saved. Sends questions in chunks of ≤ 25 to the AI.
  * Labels each question with a topic ID; unknown topic IDs -> null (Unassigned).
  * unitId is derived from the topic by code.
- * User edits (editedByUser) are NEVER overwritten.
+ * Callers only pass questions with no topic yet, so a topic the user set by hand is never overwritten.
  */
 
 import { Provider } from '../config';

@@ -1,7 +1,7 @@
 /**
  * Syllabus Import orchestrator.
  * Supports PDF (via PdfWorker), photos, or pasted text.
- * Pages go to the model in chunks of up to 6 (one call for a short syllabus). Each chunk after the first is
+ * Pages go to the model in chunks of up to 3 (one call for a short syllabus). Each chunk after the first is
  * told which subject/unit the previous one ended in, then the chunks are merged by subject name.
  * Pages or chunks that fail are reported in `notice`, never dropped silently.
  */
