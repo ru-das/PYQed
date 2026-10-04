@@ -4,6 +4,7 @@
 //   <documentDirectory>/pyqed/subjects/{id}/       page images (later milestones)
 import { Directory, File, Paths } from 'expo-file-system';
 import { writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import { findRepeats } from '../logic/ranking';
 import { migrate, newId, summarize, Subject, SubjectMeta, CURRENT_VERSION } from '../logic/subject';
 
 import { parseShareFile, shareFileName, toShareFile } from '../logic/share';
@@ -32,7 +33,9 @@ export async function listSubjects(): Promise<SubjectMeta[]> {
 export async function getSubject(id: string): Promise<Subject | null> {
   const f = subjectFile(id);
   if (!f.exists) return null;
-  return migrate(JSON.parse(await f.text()));
+  const s = migrate(JSON.parse(await f.text()));
+  // Repeats are derived from the question texts on every load, so edits and new papers never leave them stale
+  return { ...s, questions: findRepeats(s.questions) };
 }
 
 export function emptySubject(name = '', code?: string): Subject {

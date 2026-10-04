@@ -49,7 +49,6 @@ import {
   newId,
 } from '../src/store/subjects';
 import { labelQuestions } from '../src/ai/labelQuestions';
-import { groupRepeats } from '../src/ai/groupRepeats';
 
 type EditableQuestion = {
   id: string;
@@ -123,8 +122,7 @@ export default function PaperImportScreen() {
     message: 'Starting paper import...',
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // Which labelling step is running (topics first, then repeats) and whether a single page is being retried
-  const [labelKind, setLabelKind] = useState<'labels' | 'repeats'>('labels');
+  // Whether a single page is being retried
   const [retrying, setRetrying] = useState(false);
   // Elapsed seconds for the current AI call; restarts whenever progress moves on
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -542,24 +540,8 @@ export default function PaperImportScreen() {
             questions: labelled.questions,
           };
           await saveSubject(updatedSubject);
-
-          // 6. Repeat groups (§8.4) for topics that received new questions
-          setLabelKind('repeats');
-          const grouped = await groupRepeats(
-            updatedSubject,
-            newQuestionIds,
-            apiSettings.provider,
-            apiSettings.apiKey,
-            apiSettings.modelId,
-            (p) => {
-              setProgress({ stage: 'extracting', ...p });
-              showProgress('Labelling questions', p.message);
-            },
-          );
-          updatedSubject = { ...updatedSubject, questions: grouped };
-          await saveSubject(updatedSubject);
         } catch (err) {
-          console.warn('Topic labelling / repeat grouping failed:', err);
+          console.warn('Topic labelling failed:', err);
           // Non-fatal: paper is already saved with unassigned questions
         }
         const newIds = new Set(domainQuestions.map((q) => q.id));
@@ -816,7 +798,7 @@ export default function PaperImportScreen() {
           <ImportProgress
             title="Sorting questions into topics..."
             elapsedSec={elapsedSec}
-            steps={labelSteps(labelKind, progress)}
+            steps={labelSteps(progress)}
             phrases={LABEL_PHRASES}
             peek={progress.live?.peek}
             current={progress.current}

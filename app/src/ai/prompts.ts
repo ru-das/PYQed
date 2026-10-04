@@ -185,30 +185,3 @@ When unsure:
 Return ONLY this JSON:
 {"labels":[{"q":"<question id>","topic":"<topic id or null>","confidence":"high or low"}]}`;
 }
-
-/**
- * Repeat groups prompt.
- * Input: questions of one or more topics, listed under "Topic: name" headings as "QuestionID | year | text".
- * Output: groups of question IDs that ask essentially the same thing.
- */
-export function repeatGroupsPrompt(questions: string): string {
-  return `Find repeated questions in university exam papers. The questions are listed under their syllabus topic.
-Think briefly, then reply with the JSON only. Decide each item once and don't re-check finished parts: the student reviews everything afterwards.
-
-Questions (format: QuestionID | Year | QuestionText):
-${questions}
-
-Rules:
-- Group questions that ask for the same task, even if worded differently or with different values. Example: "Find the shortest path in graph A" and "Use Dijkstra on graph B" are the same task.
-- Do NOT group questions that only share a topic but ask for different tasks. Example: "Define a stack" and "Convert infix to postfix using a stack" are different.
-- Only group questions under the same topic heading; never mix topics in one group.
-- Each ID in at most one group; every group has at least 2 IDs. Leave out questions with no repeat. Use ONLY the IDs listed.
-- Do not correct or rewrite the question texts. You only output IDs.
-
-When unsure:
-- Group only if one prepared answer would answer both questions. Not sure -> do not group.
-- A question that fits two groups -> the closer one.
-
-Return ONLY this JSON:
-{"groups":[["<id>","<id>"],["<id>","<id>","<id>"]]}`;
-}

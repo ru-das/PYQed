@@ -4,7 +4,7 @@ import {
   timesAsked,
   askedYears,
   collapseRepeats,
-  applyRepeatGroups,
+  findRepeats,
   topicWeight,
   unitWeight,
   highPriorityUnitIds,
@@ -295,17 +295,28 @@ describe('repeat groups (AGENTS.md §8.4)', () => {
     assert.deepStrictEqual(out, [['x'], ['b', 'a'], ['y']]);
   });
 
-  it('applyRepeatGroups replaces groups for the topic only', () => {
+  it('findRepeats groups the same wording across different years', () => {
     const qs = [
-      createTestQuestion({ id: 'a', repeatGroupId: 'old' }),
-      createTestQuestion({ id: 'b', repeatGroupId: 'old' }),
-      createTestQuestion({ id: 'c' }),
-      createTestQuestion({ id: 'other', repeatGroupId: 'keep' }),
+      createTestQuestion({ id: 'a', paperId: 'p1', year: 2019, text: 'Define a stack.' }),
+      createTestQuestion({ id: 'b', paperId: 'p2', year: 2022, text: 'define  a STACK' }),
+      createTestQuestion({ id: 'c', paperId: 'p3', year: 2022, text: 'Define a queue.' }),
     ];
-    const out = applyRepeatGroups(qs, new Set(['a', 'b', 'c']), [['b', 'c']]);
-    const byId = Object.fromEntries(out.map((q) => [q.id, q.repeatGroupId]));
-    assert.strictEqual(byId.a, null);
-    assert.ok(byId.b && byId.b === byId.c);
-    assert.strictEqual(byId.other, 'keep');
+    const byId = Object.fromEntries(findRepeats(qs).map((q) => [q.id, q.repeatGroupId]));
+    assert.strictEqual(byId.a, 'a');
+    assert.strictEqual(byId.b, 'a');
+    assert.strictEqual(byId.c, null);
+  });
+
+  it('findRepeats ignores the same wording within one year', () => {
+    const qs = [
+      createTestQuestion({ id: 'a', paperId: 'p1', year: 2020, text: 'Define a stack.' }),
+      createTestQuestion({ id: 'b', paperId: 'p2', year: 2020, text: 'Define a stack.' }),
+    ];
+    assert.ok(findRepeats(qs).every((q) => q.repeatGroupId === null));
+  });
+
+  it('findRepeats clears stale group ids', () => {
+    const qs = [createTestQuestion({ id: 'a', repeatGroupId: 'old' })];
+    assert.strictEqual(findRepeats(qs)[0].repeatGroupId, null);
   });
 });

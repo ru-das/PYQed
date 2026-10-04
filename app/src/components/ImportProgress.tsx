@@ -139,11 +139,11 @@ export function syllabusSteps(p: SyllabusImportProgress): ProgressStep[] {
   return stepsAt(['Prepare pages', 'Read syllabus', 'Check & organise'], cur, parts.filter(Boolean).join(' · ') || undefined);
 }
 
-/** Steps while questions are matched to topics, then grouped into repeats. */
-export function labelSteps(kind: 'labels' | 'repeats', p: Pos): ProgressStep[] {
-  const live = liveDetail(p.live, kind === 'labels' ? 'label' : 'group');
+/** Steps while questions are matched to topics. */
+export function labelSteps(p: Pos): ProgressStep[] {
+  const live = liveDetail(p.live, 'label');
   const detail = `Batch ${p.current} of ${p.total}${live ? ` · ${live}` : ''}`;
-  return stepsAt(['Match questions to topics', 'Find repeated questions'], kind === 'labels' ? 0 : 1, detail);
+  return stepsAt(['Match questions to topics'], 0, detail);
 }
 
 // Fisher-Yates, so each import shows the lines in a different order

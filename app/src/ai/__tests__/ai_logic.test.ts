@@ -2,13 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ANSWER_CUT_OFF, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
 import {
-  validateRepeatGroups,
   deriveQuestionType,
   checkNeedsReview,
   validatePageQuestions,
   validateSyllabusStructure,
 } from '../validators';
-import { pageToQuestionsPrompt, repeatGroupsPrompt, syllabusToStructurePrompt, topicLabelsPrompt } from '../prompts';
+import { pageToQuestionsPrompt, syllabusToStructurePrompt, topicLabelsPrompt } from '../prompts';
 import { lastSyllabusPosition, mergeSyllabusSubjects } from '../../logic/syllabus';
 
 describe('finishError', () => {
@@ -181,7 +180,6 @@ describe('prompt wording', () => {
       pageToQuestionsPrompt(1, 1),
       syllabusToStructurePrompt(),
       topicLabelsPrompt('T1 | U | t', 'Q1 | q'),
-      repeatGroupsPrompt('Q1 | 2020 | q'),
     ];
     for (const p of all) {
       assert.ok(p.includes('When unsure'));
@@ -438,40 +436,6 @@ describe('lastSyllabusPosition', () => {
   it('handles a subject with no units and an empty list', () => {
     assert.deepStrictEqual(lastSyllabusPosition([{ name: 'A', code: null, units: [] }]), { subject: 'A', code: null, unit: null });
     assert.strictEqual(lastSyllabusPosition([]), null);
-  });
-});
-
-describe('validateRepeatGroups (§8.4)', () => {
-  it('drops unknown ids, reused ids and groups smaller than 2', () => {
-    const valid = new Set(['a', 'b', 'c', 'd']);
-    const res = validateRepeatGroups(
-      { groups: [['a', 'b', 'zzz'], ['b', 'c'], ['c', 'd'], ['d']] },
-      valid,
-    );
-    assert.ok(res.ok);
-    // ['b','c'] -> only 'c' left (b reused) -> dropped; ['c','d'] kept
-    assert.deepStrictEqual(res.data.groups, [['a', 'b'], ['c', 'd']]);
-  });
-
-  it('rejects a response without a groups array', () => {
-    assert.strictEqual(validateRepeatGroups({}).ok, false);
-  });
-});
-
-describe('repeat batching', () => {
-  it('packs small topics together without splitting a topic', async () => {
-    const { packBatches } = await import('../groupRepeats');
-    const topic = (n: number) => Array.from({ length: n }, (_, i) => i);
-    const batches = packBatches([topic(30), topic(25), topic(20), topic(70)], 60);
-    assert.deepStrictEqual(batches.map((b) => b.map((t) => t.length)), [[30, 25], [20], [70]]);
-  });
-
-  it('keeps only groups that stay within one topic', async () => {
-    const { groupsByTopic } = await import('../groupRepeats');
-    const topicOf = new Map([['Q1', 'a'], ['Q2', 'a'], ['Q3', 'b'], ['Q4', 'b']]);
-    const out = groupsByTopic([['Q1', 'Q2'], ['Q2', 'Q3'], ['Q3', 'Q4']], topicOf);
-    assert.deepStrictEqual(out.get('a'), [['Q1', 'Q2']]);
-    assert.deepStrictEqual(out.get('b'), [['Q3', 'Q4']]);
   });
 });
 

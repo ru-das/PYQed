@@ -2,7 +2,7 @@
  * Pure ranking, sorting, and filtering logic.
  * Every number shown in the app is computed here — never from AI.
  */
-import { Question, Unit, newId } from './subject';
+import { Question, Unit } from './subject';
 
 // ─── Times Asked ────────────────────────────────────────────────
 
@@ -80,24 +80,26 @@ export function collapseRepeats(sorted: Question[]): Question[][] {
 }
 
 /**
- * Replace repeat groups for one topic's questions (§8.4).
- * Old group IDs on those questions are cleared; each AI group gets a fresh ID.
+ * Repeats (§8.4), found by code: questions with the same wording (ignoring case and punctuation)
+ * that appear in at least 2 different years. Same wording twice in one year is not a repeat.
+ * A question from an undated paper counts as its own "year", since it may be from another one.
+ * Group id = the first member's id, so the result is stable. Returns all questions with repeatGroupId set.
  */
-export function applyRepeatGroups(
-  questions: Question[],
-  topicQuestionIds: Set<string>,
-  groups: string[][],
-): Question[] {
-  const newGroupOf = new Map<string, string>();
-  for (const g of groups) {
-    const id = newId();
-    for (const qid of g) newGroupOf.set(qid, id);
+export function findRepeats(questions: Question[]): Question[] {
+  const byText = new Map<string, Question[]>();
+  for (const q of questions) {
+    const key = q.text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (!key) continue;
+    const g = byText.get(key);
+    if (g) g.push(q);
+    else byText.set(key, [q]);
   }
-  return questions.map((q) =>
-    topicQuestionIds.has(q.id)
-      ? { ...q, repeatGroupId: newGroupOf.get(q.id) ?? null }
-      : q,
-  );
+  const groupOfId = new Map<string, string>();
+  for (const g of byText.values()) {
+    if (new Set(g.map((q) => q.year ?? q.paperId)).size < 2) continue;
+    for (const q of g) groupOfId.set(q.id, g[0].id);
+  }
+  return questions.map((q) => ({ ...q, repeatGroupId: groupOfId.get(q.id) ?? null }));
 }
 
 // ─── Topic Weight ───────────────────────────────────────────────

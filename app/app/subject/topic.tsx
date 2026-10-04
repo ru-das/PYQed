@@ -89,7 +89,6 @@ export default function TopicScreen() {
                 unitId: targetUnitId,
                 editedByUser: true, // user edit wins: AI never overwrites
                 topicConfidence: null,
-                repeatGroupId: null, // repeat groups are per topic
               },
         ),
       },

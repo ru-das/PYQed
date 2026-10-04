@@ -44,7 +44,6 @@ import { QuestionCard } from '../../src/components/QuestionCard';
 import { Button, Chip, EmptyState, Segmented } from '../../src/components/ui';
 import { getApiSettings } from '../../src/ai/settings';
 import { labelQuestions } from '../../src/ai/labelQuestions';
-import { groupRepeats } from '../../src/ai/groupRepeats';
 import type { StreamProgress } from '../../src/ai/client';
 import { topicProgress } from '../../src/logic/practice';
 
@@ -110,7 +109,6 @@ export default function SubjectScreen() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [relabelling, setRelabelling] = useState(false);
   // Live state of the "Sort unassigned" run, shown on the same progress page as a paper import
-  const [relabelKind, setRelabelKind] = useState<'labels' | 'repeats'>('labels');
   const [relabelProg, setRelabelProg] = useState<{ current: number; total: number; live?: StreamProgress }>({ current: 0, total: 0 });
   const [relabelSec, setRelabelSec] = useState(0);
   useEffect(() => {
@@ -172,16 +170,13 @@ export default function SubjectScreen() {
       Alert.alert('API key needed', 'Add your API key in Settings, then try again.');
       return;
     }
-    setRelabelKind('labels');
     setRelabelProg({ current: 0, total: 0 });
     setRelabelling(true);
     try {
       // Only topic-less questions are sent, so a topic the user set by hand is never touched
       const ids = unassignedQs.map((q) => q.id);
       const labelled = await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg);
-      let next: Subject = { ...subject, questions: labelled.questions };
-      setRelabelKind('repeats');
-      next = { ...next, questions: await groupRepeats(next, ids, provider, apiKey, modelId, setRelabelProg) };
+      const next: Subject = { ...subject, questions: labelled.questions };
       await saveSubject(next);
       setSubject(next);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -766,7 +761,7 @@ export default function SubjectScreen() {
           <ImportProgress
             title="Sorting questions into topics..."
             elapsedSec={relabelSec}
-            steps={labelSteps(relabelKind, relabelProg)}
+            steps={labelSteps(relabelProg)}
             phrases={LABEL_PHRASES}
             peek={relabelProg.live?.peek}
             current={relabelProg.current}
