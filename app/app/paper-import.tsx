@@ -801,7 +801,8 @@ export default function PaperImportScreen() {
               elapsedSec={elapsedSec}
               steps={paperSteps(progress.stage, progress)}
               phrases={PAPER_PHRASES}
-              peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
+              peek={progress.live?.peek}
+            peekLabel={progress.live?.phase === 'writing' ? 'AI is writing' : 'AI is thinking'}
               current={progress.current}
               total={progress.total}
             />
@@ -817,7 +818,8 @@ export default function PaperImportScreen() {
             elapsedSec={elapsedSec}
             steps={paperSteps('extracting', progress)}
             phrases={PAPER_PHRASES}
-            peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
+            peek={progress.live?.peek}
+            peekLabel={progress.live?.phase === 'writing' ? 'AI is writing' : 'AI is thinking'}
           />
         </View>
       </Modal>
@@ -830,7 +832,8 @@ export default function PaperImportScreen() {
             elapsedSec={elapsedSec}
             steps={labelSteps(labelKind, progress)}
             phrases={LABEL_PHRASES}
-            peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
+            peek={progress.live?.peek}
+            peekLabel={progress.live?.phase === 'writing' ? 'AI is writing' : 'AI is thinking'}
             current={progress.current}
             total={progress.total}
           />

@@ -18,6 +18,9 @@ export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
 /** What a progress screen shows about a live stream: the phase, the tail of the reasoning, an item count. */
 export type StreamProgress = { phase: 'thinking' | 'writing'; peek?: string; found?: number };
 
+/** How much of the model's latest reasoning the progress screens show. */
+export const PEEK_CHARS = 140;
+
 /**
  * Turns the raw stream into StreamProgress updates (at most one per 500 ms).
  * `countRe` counts items in the partial JSON answer (e.g. /"number"\s*:/g for questions).
@@ -29,9 +32,13 @@ export function streamProgress(emit: (p: StreamProgress) => void, countRe?: RegE
     if (now - last < 500) return;
     last = now;
     if (e.phase === 'thinking') {
-      emit({ phase: 'thinking', peek: e.text.replace(/\s+/g, ' ').slice(-90) });
+      emit({ phase: 'thinking', peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS) });
     } else {
-      emit({ phase: 'writing', found: countRe ? (e.text.match(countRe) || []).length : undefined });
+      emit({
+        phase: 'writing',
+        peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS),
+        found: countRe ? (e.text.match(countRe) || []).length : undefined,
+      });
     }
   };
 }

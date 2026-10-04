@@ -6,7 +6,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON, StreamEvent } from './client';
+import { generateJSON, StreamEvent, PEEK_CHARS } from './client';
 import { syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
@@ -69,7 +69,7 @@ function streamHandlers(
           current,
           total,
           message: 'AI is thinking...',
-          peek: e.text.replace(/\s+/g, ' ').slice(-90),
+          peek: e.text.replace(/\s+/g, ' ').slice(-PEEK_CHARS),
         });
       } else {
         // Partial JSON: every unit has a "topics" key and every subject a "units" key, so

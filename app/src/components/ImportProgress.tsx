@@ -11,8 +11,10 @@ type Props = {
   steps?: ProgressStep[];
   /** Fun rotating lines under the title (shuffled, a new one every few seconds) */
   phrases?: string[];
-  /** Tail of the model's own thinking, shown as one faded italic line */
+  /** Tail of the model's own thinking, shown live in a box */
   peek?: string;
+  /** Heading above the live text, e.g. "AI is writing". */
+  peekLabel?: string;
   /** Tells the user they can leave this screen while the import keeps running */
   canLeave?: boolean;
   current?: number;
@@ -146,6 +148,7 @@ export function ImportProgress({
   steps,
   phrases,
   peek,
+  peekLabel = 'AI is thinking',
   canLeave,
   current = 0,
   total = 0,
@@ -273,9 +276,13 @@ export function ImportProgress({
       )}
 
       {peek ? (
-        <Text style={[styles.peek, { color: colors.textSecondary }]} numberOfLines={2}>
-          …{peek}
-        </Text>
+        <View style={[styles.peekBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.peekLabel, { color: colors.accent }]}>{peekLabel}</Text>
+          {/* ellipsizeMode head keeps the newest words visible as the text grows */}
+          <Text style={[styles.peek, { color: colors.textSecondary }]} numberOfLines={2} ellipsizeMode="head">
+            {peek}
+          </Text>
+        </View>
       ) : null}
 
       {canLeave && (
@@ -322,7 +329,15 @@ const styles = StyleSheet.create({
   dotBox: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 10, height: 10, borderRadius: 5 },
   detail: { fontSize: FontSize.caption, marginTop: 2 },
-  peek: { fontSize: FontSize.caption, fontStyle: 'italic', textAlign: 'center', opacity: 0.7 },
+  peekBox: {
+    alignSelf: 'stretch',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.card,
+    borderWidth: 1,
+    gap: Spacing.xs,
+  },
+  peekLabel: { fontSize: FontSize.tiny, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
+  peek: { fontSize: FontSize.caption, lineHeight: 18 },
   hint: {
     flexDirection: 'row',
     gap: Spacing.sm,
