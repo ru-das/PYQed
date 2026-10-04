@@ -71,7 +71,7 @@ export function Chip({ label, active, onPress, icon, accessibilityRole, accessib
   return (
     <TouchableOpacity
       onPress={onPress}
-      hitSlop={{ top: 6, bottom: 6 }}
+      hitSlop={{ top: 4, bottom: 4 }}
       accessibilityRole={accessibilityRole}
       accessibilityState={accessibilityRole === 'radio' ? { selected: active } : undefined}
       accessibilityLabel={accessibilityLabel ?? label}
@@ -157,7 +157,7 @@ export function Sheet({ visible, title, subtitle, onClose, children }: {
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.text, fontSize: FontSize.h3, fontWeight: '700' }}>{title}</Text>
               {subtitle ? (
-                <Text style={{ color: colors.textSecondary, fontSize: FontSize.caption }} numberOfLines={1}>{subtitle}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: FontSize.caption }} numberOfLines={2}>{subtitle}</Text>
               ) : null}
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityLabel="Close">
@@ -203,8 +203,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    minHeight: 36,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
     borderRadius: BorderRadius.chip,
     borderWidth: 1,
   },

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../theme';
 
-type Kind = 'success' | 'info' | 'error';
+type Kind = 'success' | 'info';
 type Msg = { id: number; text: string; kind: Kind };
 
 let nextId = 1;
@@ -52,8 +52,8 @@ export function Toaster() {
   }, []);
 
   if (!msg) return null;
-  const tone = msg.kind === 'error' ? colors.red : msg.kind === 'info' ? colors.accent : colors.success;
-  const icon = msg.kind === 'error' ? 'alert-circle' : msg.kind === 'info' ? 'information-circle' : 'checkmark-circle';
+  const tone = msg.kind === 'info' ? colors.accent : colors.success;
+  const icon = msg.kind === 'info' ? 'information-circle' : 'checkmark-circle';
 
   return (
     <Animated.View

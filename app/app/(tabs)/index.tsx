@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
+import { Button } from '../../src/components/ui';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from '../../src/haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -102,31 +103,23 @@ export default function HomeScreen() {
           )}
         />
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: colors.accent }]}
-            onPress={() => router.push('/subject/edit')}
-            accessibilityLabel="Add subject"
-          >
-            <Ionicons name="add" size={20} color={colors.accentText} />
-            <Text style={[styles.addBtnText, { color: colors.accentText }]}>Add subject</Text>
-          </TouchableOpacity>
+          <Button label="Add subject" icon="add" onPress={() => router.push('/subject/edit')} />
           <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[styles.importBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+            <Button
+              label="Import syllabus"
+              variant="outline"
+              icon="document-text-outline"
               onPress={() => router.push('/syllabus-import')}
-              accessibilityLabel="Import syllabus"
-            >
-              <Ionicons name="document-text-outline" size={18} color={colors.accent} />
-              <Text style={[styles.importBtnText, { color: colors.text }]}>Import syllabus</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.importBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+              style={styles.half}
+            />
+            <Button
+              label="Open shared"
+              variant="outline"
+              icon="folder-open-outline"
               onPress={openShared}
+              style={styles.half}
               accessibilityLabel="Open a shared subject file"
-            >
-              <Ionicons name="folder-open-outline" size={18} color={colors.accent} />
-              <Text style={[styles.importBtnText, { color: colors.text }]}>Open shared</Text>
-            </TouchableOpacity>
+            />
           </View>
         </View>
       </View>
@@ -205,6 +198,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  half: { flex: 1, paddingHorizontal: Spacing.sm },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -228,30 +222,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.sm,
   },
-  importBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    flex: 1,
-    minHeight: 48,
-    borderRadius: BorderRadius.button,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.sm,
-  },
-  importBtnText: {
-    fontSize: FontSize.body - 1,
-    fontWeight: '700',
-  },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    minHeight: 48,
-    borderRadius: BorderRadius.button,
-  },
-  addBtnText: { fontSize: FontSize.body, fontWeight: '700' },
   container: {
     flex: 1,
     padding: Spacing.md,
