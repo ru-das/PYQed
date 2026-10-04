@@ -306,13 +306,14 @@ export function validateTopicLabels(
     const item = root.labels[i];
     if (!item || typeof item !== 'object') continue;
     const l = item as Record<string, unknown>;
-    const q = typeof l.q === 'string' ? l.q.trim() : '';
+    // Models sometimes return bare numbers instead of "Q3" / "T3"
+    const q = typeof l.q === 'string' || typeof l.q === 'number' ? String(l.q).trim() : '';
     if (!q) continue;
     if (validQuestionIds && !validQuestionIds.has(q)) continue;
 
     let topic: string | null = null;
-    if (typeof l.topic === 'string' && l.topic.trim()) {
-      topic = l.topic.trim();
+    if ((typeof l.topic === 'string' || typeof l.topic === 'number') && String(l.topic).trim()) {
+      topic = String(l.topic).trim();
       if (validTopicIds && !validTopicIds.has(topic)) {
         topic = null;
       }
@@ -324,6 +325,10 @@ export function validateTopicLabels(
     labels.push({ q, topic, confidence });
   }
 
+  // An empty answer is useless: fail so generateJSON retries once
+  if (labels.length === 0) {
+    return { ok: false, error: 'No usable labels in response' };
+  }
   return { ok: true, data: { labels } };
 }
 

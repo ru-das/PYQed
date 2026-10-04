@@ -498,6 +498,7 @@ export default function PaperImportScreen() {
 
     // 5. Trigger topic labelling if syllabus units exist
     let labelNote = '';
+    let labelError: string | undefined;
     if (updatedSubject.units.length === 0) {
       labelNote = ' Add a syllabus to sort them into topics.';
     } else {
@@ -513,7 +514,7 @@ export default function PaperImportScreen() {
 
         try {
           const newQuestionIds = domainQuestions.map((q) => q.id);
-          const labelledQuestions = await labelQuestions(
+          const labelled = await labelQuestions(
             updatedSubject,
             newQuestionIds,
             apiSettings.provider,
@@ -524,9 +525,10 @@ export default function PaperImportScreen() {
               showProgress('Labelling questions', p.message);
             },
           );
+          labelError = labelled.error;
           updatedSubject = {
             ...updatedSubject,
-            questions: labelledQuestions,
+            questions: labelled.questions,
           };
           await saveSubject(updatedSubject);
 
@@ -554,7 +556,9 @@ export default function PaperImportScreen() {
           (q) => newIds.has(q.id) && q.topicId === null,
         ).length;
         if (missed > 0) {
-          labelNote = ` ${missed} couldn't be matched to a topic; find them under Unassigned.`;
+          labelNote = ` ${missed} couldn't be matched to a topic; find them under Unassigned.${
+            labelError ? ` Reason: ${labelError}` : ''
+          }`;
         }
       } else {
         labelNote = ' Add an API key in Settings to sort them into topics.';

@@ -55,9 +55,13 @@ export function buildQuestionList(questions: Question[]): { text: string; aliasT
   return { text, aliasToId };
 }
 
-/** Look up an alias the model returned, tolerating case and stray whitespace. */
-export function resolveAlias(map: Map<string, string>, raw: string | null): string | null {
-  return raw ? map.get(raw.trim().toUpperCase()) ?? null : null;
+/**
+ * Look up an alias the model returned. Tolerates case, whitespace, a bare number ("3"),
+ * trailing text ("T3 | Unit 1 | Graphs", "Q3.") by taking the first number and re-adding the prefix.
+ */
+export function resolveAlias(map: Map<string, string>, raw: string | number | null, prefix: 'T' | 'Q'): string | null {
+  const m = raw === null ? null : String(raw).match(/(\d+)/);
+  return m ? map.get(`${prefix}${parseInt(m[1], 10)}`) ?? null : null;
 }
 
 /**
@@ -74,8 +78,12 @@ export function findUnitIdForTopic(units: Unit[], topicId: string): string | nul
 
 /**
  * Label questions with topic IDs using AI (§8.3).
- * Only labels questions in questionIds that have not had their topic edited by user.
- * Returns the full questions array with new labels applied.
+ * Returns the full questions array with new labels applied, plus the first error message
+ * (if any chunk failed) so the caller can tell the user why questions stayed unassigned.
+ *
+ * editedByUser is deliberately NOT checked: it is set by ANY edit (marks, typo...) in review.
+ * A topic the user set by hand can't be overwritten anyway, because callers only pass
+ * brand-new questions or ones with topicId === null.
  */
 export async function labelQuestions(
   subject: Subject,
@@ -84,27 +92,25 @@ export async function labelQuestions(
   apiKey: string,
   modelId: string,
   onProgress?: (p: LabelProgress) => void,
-): Promise<Question[]> {
+): Promise<{ questions: Question[]; error?: string }> {
   if (subject.units.length === 0) {
     // No syllabus units exist; questions remain unassigned
-    return subject.questions;
+    return { questions: subject.questions };
   }
 
   const topics = buildTopicList(subject.units);
   if (!topics.text.trim()) {
-    return subject.questions;
+    return { questions: subject.questions };
   }
 
   const targetIdSet = new Set(questionIds);
-
-  // Questions to label: must be in target set AND not user-edited
-  const questionsToLabel = subject.questions.filter(
-    (q) => targetIdSet.has(q.id) && !q.editedByUser,
-  );
+  const questionsToLabel = subject.questions.filter((q) => targetIdSet.has(q.id));
 
   if (questionsToLabel.length === 0) {
-    return subject.questions;
+    return { questions: subject.questions };
   }
+
+  let error: string | undefined;
 
   // Chunk into groups of <= 25
   const chunks: Question[][] = [];
@@ -134,36 +140,35 @@ export async function labelQuestions(
         provider,
         apiKey,
         modelId,
+        temperature: 1, // 0 lets Gemma loop on "re-checking" (same as the syllabus call)
         onStream: streamProgress(
           (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
           /"q"\s*:/g,
         ),
       });
 
-      const validated = res.ok ? validateTopicLabels(res.data) : null;
-      if (validated?.ok) {
-        for (const item of validated.data.labels) {
-          const qId = resolveAlias(questions.aliasToId, item.q);
-          if (!qId) continue;
-          labelMap.set(qId, {
-            topicId: resolveAlias(topics.aliasToId, item.topic), // null if unknown or explicitly null
-            confidence: item.confidence,
-          });
-        }
-      } else {
-        console.warn('Topic labelling chunk failed:', res.ok ? (validated as any)?.error : (res as any).error);
+      if (!res.ok) {
+        error ??= res.friendlyError;
+        console.warn('Topic labelling chunk failed:', res.error);
+        if (res.fatal) break; // bad key / rate limit / offline: later chunks would fail too
+        continue;
       }
-    } catch (e) {
-      // Non-fatal: if a chunk fails, those questions remain with their existing topic/unassigned
+      for (const item of res.data.labels) {
+        const qId = resolveAlias(questions.aliasToId, item.q, 'Q');
+        if (!qId) continue;
+        labelMap.set(qId, {
+          topicId: resolveAlias(topics.aliasToId, item.topic, 'T'), // null if unknown or explicitly null
+          confidence: item.confidence,
+        });
+      }
+    } catch (e: any) {
+      // Non-fatal: those questions stay unassigned, but tell the user why
+      error ??= e?.message || 'Something went wrong while sorting questions.';
       console.warn('Topic labelling chunk threw:', e);
     }
   }
 
-  // Apply labels without overwriting user edits
-  return subject.questions.map((q) => {
-    // If question was not in the labelled set or is user edited, leave as is
-    if (q.editedByUser) return q;
-
+  const labelled = subject.questions.map((q) => {
     const label = labelMap.get(q.id);
     if (!label) return q;
 
@@ -178,4 +183,5 @@ export async function labelQuestions(
       topicConfidence: label.confidence,
     };
   });
+  return { questions: labelled, error };
 }

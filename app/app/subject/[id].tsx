@@ -195,15 +195,17 @@ export default function SubjectScreen() {
     setRelabelProg({ current: 0, total: 0 });
     setRelabelling(true);
     try {
-      const ids = unassignedQs.filter((q) => !q.editedByUser).map((q) => q.id);
-      let next: Subject = { ...subject, questions: await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg) };
+      // Only topic-less questions are sent, so a topic the user set by hand is never touched
+      const ids = unassignedQs.map((q) => q.id);
+      const labelled = await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg);
+      let next: Subject = { ...subject, questions: labelled.questions };
       setRelabelKind('repeats');
       next = { ...next, questions: await groupRepeats(next, ids, provider, apiKey, modelId, setRelabelProg) };
       await saveSubject(next);
       setSubject(next);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const left = next.questions.filter((q) => q.topicId === null).length;
-      Alert.alert('Done', left === 0 ? 'Every question now has a topic.' : `${left} still couldn't be matched. You can move them by hand.`);
+      Alert.alert('Done', left === 0 ? 'Every question now has a topic.' : `${left} still couldn't be matched. You can move them by hand.${labelled.error ? `\n\nReason: ${labelled.error}` : ''}`);
     } catch (e: any) {
       Alert.alert('Could not sort questions', e?.message || 'Something went wrong.');
     } finally {
