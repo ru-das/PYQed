@@ -191,13 +191,19 @@ describe('prompt wording', () => {
     }
   });
 
+  it('names stay exact in every details mode', () => {
+    for (const mode of ['exact', 'summary', 'none'] as const) {
+      assert.ok(syllabusToStructurePrompt(null, mode).includes('NAMES EXACTLY as printed'));
+    }
+  });
+
   it('details mode swaps only the details rule', () => {
     const exact = syllabusToStructurePrompt();
     const summary = syllabusToStructurePrompt(null, 'summary');
     const none = syllabusToStructurePrompt(null, 'none');
-    assert.ok(exact.includes('copied exactly with no length limit'));
-    assert.ok(summary.includes('in your own words') && !summary.includes('copied exactly with no length limit'));
-    assert.ok(none.includes('leave details out') && !none.includes('copied exactly with no length limit'));
+    assert.ok(exact.includes('in your own words') && exact.includes('word for word'));
+    assert.ok(summary.includes('in your own words') && !summary.includes('No length limit'));
+    assert.ok(none.includes('leave details out') && !none.includes('in your own words'));
     assert.ok(none.includes('Names (subject, unit, topic) are still copied exactly'));
   });
 
