@@ -32,10 +32,23 @@ import { getApiSettings, setActiveProvider, updateApiSettings } from '../../src/
 import { generateJSON } from '../../src/ai/client';
 import { getPrefs, setPrefs, subscribePrefs, Prefs } from '../../src/prefs';
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
+/** Small icon in front of a section heading. */
+function SectionTitle({ icon, text }: { icon: IconName; text: string }) {
+  const colors = useThemeColors();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <Ionicons name={icon} size={16} color={colors.textSecondary} />
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{text}</Text>
+    </View>
+  );
+}
+
 /** A row of mutually exclusive options, styled like the model chips. */
 function Choice<T extends string | number | boolean>({ value, options, onChange }: {
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; icon?: IconName }[];
   onChange: (v: T) => void;
 }) {
   const colors = useThemeColors();
@@ -51,11 +64,12 @@ function Choice<T extends string | number | boolean>({ value, options, onChange 
             accessibilityState={{ selected: on }}
             accessibilityLabel={o.label}
             style={{
-              minHeight: 44, justifyContent: 'center', paddingHorizontal: 14,
+              minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14,
               borderRadius: BorderRadius.chip, borderWidth: 1,
               backgroundColor: colors.card, borderColor: on ? colors.accent : colors.border,
             }}
           >
+            {o.icon && <Ionicons name={o.icon} size={16} color={on ? colors.accent : colors.textSecondary} />}
             <Text style={{ fontSize: FontSize.caption + 1, fontWeight: '600', color: on ? colors.accent : colors.textSecondary }}>
               {o.label}
             </Text>
@@ -197,18 +211,14 @@ export default function SettingsScreen() {
     >
       {/* Section: Provider */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-          AI PROVIDER
-        </Text>
+        <SectionTitle icon="sparkles-outline" text="AI PROVIDER" />
         <ProviderSelect value={provider} onChange={handleSwitchProvider} />
       </View>
 
       {/* Section: Base URL (OpenAI-compatible only) */}
       {provider === 'openai' && (
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-            BASE URL
-          </Text>
+          <SectionTitle icon="link-outline" text="BASE URL" />
           <View
             style={[
               styles.inputRow,
@@ -235,9 +245,7 @@ export default function SettingsScreen() {
       {/* Section: API Key */}
       <View style={styles.section}>
         <View style={styles.rowBetween}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-            API KEY
-          </Text>
+          <SectionTitle icon="key-outline" text="API KEY" />
           {provider !== 'openai' && (
             <TouchableOpacity
               onPress={() =>
@@ -300,9 +308,7 @@ export default function SettingsScreen() {
 
       {/* Section: Model ID */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
-          MODEL ID
-        </Text>
+        <SectionTitle icon="hardware-chip-outline" text="MODEL ID" />
         <View
           style={[
             styles.inputRow,
@@ -375,11 +381,11 @@ export default function SettingsScreen() {
 
       {/* Section: Thinking */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>THINKING</Text>
+        <SectionTitle icon="bulb-outline" text="THINKING" />
         <Choice
           value={prefs.thinking}
           onChange={(v) => set({ thinking: v })}
-          options={[{ value: true, label: 'On (recommended)' }, { value: false, label: 'Off' }]}
+          options={[{ value: true, label: 'On (recommended)', icon: 'bulb-outline' }, { value: false, label: 'Off', icon: 'flash-outline' }]}
         />
         <Text style={[styles.helperText, { color: colors.textSecondary }]}>
           {prefs.thinking
@@ -451,17 +457,17 @@ export default function SettingsScreen() {
 
       {/* Section: Appearance */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>APPEARANCE</Text>
+        <SectionTitle icon="color-palette-outline" text="APPEARANCE" />
         <Choice
           value={prefs.theme}
           onChange={(v) => set({ theme: v })}
-          options={[{ value: 'system', label: 'Match phone' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]}
+          options={[{ value: 'system', label: 'Match phone', icon: 'phone-portrait-outline' }, { value: 'light', label: 'Light', icon: 'sunny-outline' }, { value: 'dark', label: 'Dark', icon: 'moon-outline' }]}
         />
       </View>
 
       {/* Section: Imports */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>PAGES PER IMPORT</Text>
+        <SectionTitle icon="documents-outline" text="PAGES PER IMPORT" />
         <Choice
           value={prefs.maxPages}
           onChange={(v) => set({ maxPages: v })}
@@ -474,11 +480,11 @@ export default function SettingsScreen() {
 
       {/* Section: Sharing */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SHARING PAGE IMAGES</Text>
+        <SectionTitle icon="share-outline" text="SHARING PAGE IMAGES" />
         <Choice
           value={prefs.shareImages}
           onChange={(v) => set({ shareImages: v })}
-          options={[{ value: 'ask', label: 'Ask each time' }, { value: 'without', label: 'Never' }, { value: 'with', label: 'Always' }]}
+          options={[{ value: 'ask', label: 'Ask each time', icon: 'help-circle-outline' }, { value: 'without', label: 'Never', icon: 'close-circle-outline' }, { value: 'with', label: 'Always', icon: 'images-outline' }]}
         />
         <Text style={[styles.helperText, { color: colors.textSecondary }]}>
           Images make the shared file much bigger.
@@ -487,12 +493,13 @@ export default function SettingsScreen() {
 
       {/* Section: Feedback */}
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>FEEDBACK</Text>
+        <SectionTitle icon="options-outline" text="FEEDBACK" />
         {([
-          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.'],
-          ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.'],
-        ] as const).map(([key, label, hint]) => (
+          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.', 'pulse-outline'],
+          ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.', 'notifications-outline'],
+        ] as const).map(([key, label, hint, icon]) => (
           <View key={key} style={[styles.rowBetween, { marginTop: Spacing.xs }]}>
+            <Ionicons name={icon} size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
             <View style={{ flex: 1, paddingRight: Spacing.md }}>
               <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '600' }}>{label}</Text>
               <Text style={[styles.helperText, { color: colors.textSecondary, marginTop: 0 }]}>{hint}</Text>
