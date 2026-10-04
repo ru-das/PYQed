@@ -192,6 +192,16 @@ describe('sortQuestions with options', () => {
     assert.strictEqual(sorted[2].id, 'q1'); // 2
   });
 
+  it('sorts by marks, then times asked, like the topic view (§9)', () => {
+    const tied = [
+      createTestQuestion({ id: 'once', marks: 5, year: 2024 }),
+      createTestQuestion({ id: 'r1', marks: 5, year: 2020, paperId: 'p1', repeatGroupId: 'g' }),
+      createTestQuestion({ id: 'r2', marks: 5, year: 2021, paperId: 'p2', repeatGroupId: 'g' }),
+    ];
+    // the repeated question (asked twice) comes before the newer one asked once
+    assert.deepStrictEqual(sortQuestions(tied, tied, 'marks').map((x) => x.id), ['r2', 'r1', 'once']);
+  });
+
   it('sorts by year', () => {
     const sorted = sortQuestions(qs, qs, 'year', units);
     assert.strictEqual(sorted[0].id, 'q3'); // 2023

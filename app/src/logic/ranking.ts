@@ -213,13 +213,6 @@ export function sortQuestions(
   const sorted = [...questions];
   const groups = groupIndex(allQuestions);
   switch (sortBy) {
-    case 'marks':
-      return sorted.sort((a, b) => {
-        const ma = a.marks ?? -Infinity;
-        const mb = b.marks ?? -Infinity;
-        if (mb !== ma) return mb - ma;
-        return (b.year ?? 0) - (a.year ?? 0);
-      });
     case 'timesAsked':
       return sorted.sort((a, b) => {
         const taDiff = timesAsked(b, allQuestions, groups) - timesAsked(a, allQuestions, groups);
@@ -243,8 +236,7 @@ export function sortQuestions(
         return (b.marks ?? -Infinity) - (a.marks ?? -Infinity);
       });
     }
-    case 'default':
-    default:
+    default: // 'marks' and 'default': marks, then times asked, then year (§9)
       return defaultSort(questions, allQuestions);
   }
 }
