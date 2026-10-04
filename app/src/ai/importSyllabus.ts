@@ -7,7 +7,7 @@
  */
 
 import { Provider } from '../config';
-import { devLog, generateJSON, GenerateJSONResult, streamProgress, StreamProgress } from './client';
+import { countMatches, devLog, generateJSON, GenerateJSONResult, streamProgress, StreamProgress } from './client';
 import { runResumable } from './resume';
 import { DetailsMode, syllabusToStructurePrompt } from './prompts';
 import {
@@ -59,14 +59,15 @@ const FALLBACK_NOTICE: Record<'summary' | 'none', string> = {
   none: 'Google kept blocking the syllabus text, so some topics have no details. Names are exact.',
 };
 
-const count = (text: string, re: RegExp) => (text.match(re) || []).length;
+const countTopicKeys = countMatches(/"topics"\s*:/g);
+const countUnitKeys = countMatches(/"units"\s*:/g);
+const countNameKeys = countMatches(/"name"\s*:/g);
 
 /** Units and topics in the partial JSON answer. Every unit has a "topics" key and every subject a
  *  "units" key, so topics = all "name" keys minus the subject and unit names. */
 function countFound(text: string) {
-  const units = count(text, /"topics"\s*:/g);
-  const subjects = count(text, /"units"\s*:/g);
-  return { units, topics: Math.max(0, count(text, /"name"\s*:/g) - units - subjects) };
+  const units = countTopicKeys(text);
+  return { units, topics: Math.max(0, countNameKeys(text) - units - countUnitKeys(text)) };
 }
 
 type SyllabusCall = Parameters<typeof generateJSON<SyllabusStructureResponse>>[0];
