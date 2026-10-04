@@ -11,6 +11,19 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   openai: 'OpenAI-compatible',
 };
 
+/** Where to create a free key, for the providers that have one. */
+export const KEY_PAGES: Record<Exclude<Provider, 'openai'>, string> = {
+  aistudio: 'https://aistudio.google.com/apikey',
+  openrouter: 'https://openrouter.ai/keys',
+};
+
+/** Hint shown in the empty key field. */
+export const KEY_PLACEHOLDER: Record<Provider, string> = {
+  aistudio: 'Paste AI Studio Key (AIzaSy...)',
+  openrouter: 'Paste OpenRouter Key (sk-or-...)',
+  openai: 'Paste API key (optional for local servers)',
+};
+
 export const DEFAULT_PROVIDER: Provider = 'aistudio';
 
 // Google AI Studio — Gemma 4 model IDs

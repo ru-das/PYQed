@@ -26,6 +26,8 @@ import {
   DEFAULT_PROVIDER,
   DEFAULT_MODEL_AISTUDIO,
   ALT_MODEL_AISTUDIO,
+  KEY_PAGES,
+  KEY_PLACEHOLDER,
 } from '../../src/config';
 import { getApiSettings, setActiveProvider, updateApiSettings } from '../../src/ai/settings';
 import { generateJSON } from '../../src/ai/client';
@@ -223,13 +225,7 @@ export default function SettingsScreen() {
           <SectionTitle icon="key-outline" text="API KEY" />
           {provider !== 'openai' && (
             <TouchableOpacity
-              onPress={() =>
-                Linking.openURL(
-                  provider === 'aistudio'
-                    ? 'https://aistudio.google.com/apikey'
-                    : 'https://openrouter.ai/keys',
-                )
-              }
+              onPress={() => Linking.openURL(KEY_PAGES[provider])}
               accessibilityLabel="Get free key"
             >
               <Text style={[styles.linkText, { color: colors.accent }]}>
@@ -247,13 +243,7 @@ export default function SettingsScreen() {
         >
           <TextInput
             style={[styles.input, { color: colors.text }]}
-            placeholder={
-              provider === 'aistudio'
-                ? 'Paste AI Studio Key (AIzaSy...)'
-                : provider === 'openrouter'
-                  ? 'Paste OpenRouter Key (sk-or-...)'
-                  : 'Paste API key (optional for local servers)'
-            }
+            placeholder={KEY_PLACEHOLDER[provider]}
             placeholderTextColor={colors.textSecondary}
             value={apiKey}
             onChangeText={handleSaveKey}
@@ -407,14 +397,14 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <SectionTitle icon="options-outline" text="FEEDBACK" />
         {([
-          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.', 'vibrate'],
-          ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.', 'notifications-outline'],
-        ] as const).map(([key, label, hint, icon]) => (
+          ['haptics', 'Vibration', 'A small tap when you save or answer a flashcard.'],
+          ['notifications', 'Notifications', 'Progress and "done" alerts while a long import runs.'],
+        ] as const).map(([key, label, hint]) => (
           <View key={key} style={[styles.rowBetween, { marginTop: Spacing.xs }]}>
             {key === 'haptics' ? (
               <MaterialCommunityIcons name="vibrate" size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
             ) : (
-              <Ionicons name={icon as 'notifications-outline'} size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
+              <Ionicons name="notifications-outline" size={22} color={colors.textSecondary} style={{ marginRight: Spacing.sm }} />
             )}
             <View style={{ flex: 1, paddingRight: Spacing.md }}>
               <Text style={{ color: colors.text, fontSize: FontSize.body, fontWeight: '600' }}>{label}</Text>

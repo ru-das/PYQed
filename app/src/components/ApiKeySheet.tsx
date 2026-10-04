@@ -9,6 +9,8 @@ import {
   Provider,
   DEFAULT_PROVIDER,
   DEFAULT_MODEL_AISTUDIO,
+  KEY_PAGES,
+  KEY_PLACEHOLDER,
   PROVIDER_LABELS,
 } from '../config';
 import { getApiSettings, saveApiSettings, setActiveProvider } from '../ai/settings';
@@ -219,18 +221,12 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
                 Create a free API key
               </Text>
               <TouchableOpacity
-                onPress={() =>
-                  Linking.openURL(
-                    provider === 'aistudio'
-                      ? 'https://aistudio.google.com/apikey'
-                      : 'https://openrouter.ai/keys',
-                  )
-                }
+                onPress={() => Linking.openURL(KEY_PAGES[provider])}
                 style={styles.linkButton}
                 accessibilityLabel="Open API key page"
               >
                 <Text style={[styles.linkButtonText, { color: colors.accent }]}>
-                  Get free key at {provider === 'aistudio' ? 'Google AI Studio' : 'OpenRouter'} ↗
+                  Get free key at {PROVIDER_LABELS[provider]} ↗
                 </Text>
               </TouchableOpacity>
             </View>
@@ -263,13 +259,7 @@ export function ApiKeySheet({ visible, onDismiss, onKeyReady }: ApiKeySheetProps
         >
           <TextInput
             style={[styles.input, { color: colors.text }]}
-            placeholder={
-              provider === 'aistudio'
-                ? 'Paste AI Studio Key (AIzaSy...)'
-                : provider === 'openrouter'
-                  ? 'Paste OpenRouter Key (sk-or-...)'
-                  : 'Paste API key (optional for local servers)'
-            }
+            placeholder={KEY_PLACEHOLDER[provider]}
             placeholderTextColor={colors.textSecondary}
             value={apiKey}
             onChangeText={(text) => {
