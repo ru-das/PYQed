@@ -94,6 +94,8 @@ export type GenerateJSONResult<T = unknown> =
       fatal: boolean;
       /** True when the model ran out of output tokens: the caller can ask for less per call. */
       cutOff?: boolean;
+      /** True when the provider's recitation filter blocked the answer (it copied public text word for word). */
+      recitation?: boolean;
       timeMs: number;
     };
 
@@ -637,6 +639,7 @@ export async function generateJSON<T = unknown>(
             : `Gemma stopped early (${reason}). Try again or use fewer pages.`,
       fatal: false,
       cutOff: res.error === ANSWER_CUT_OFF,
+      recitation: reason === 'RECITATION',
       timeMs: Date.now() - startTime,
     };
   }

@@ -47,7 +47,9 @@ export type ImportSyllabusOptions = {
 };
 
 /** Pages sent to the model per call. */
-const CHUNK_PAGES = 6;
+const CHUNK_PAGES = 3; // 6 pages of a clean PDF render got blocked as RECITATION; photos of the same pages were fine
+const RECITATION_NOTICE =
+  'Google blocked copying the syllabus word for word, so topic details were summarised in the AI\'s own words. Names are exact.';
 
 const count = (text: string, re: RegExp) => (text.match(re) || []).length;
 
@@ -57,6 +59,31 @@ function countFound(text: string) {
   const units = count(text, /"topics"\s*:/g);
   const subjects = count(text, /"units"\s*:/g);
   return { units, topics: Math.max(0, count(text, /"name"\s*:/g) - units - subjects) };
+}
+
+type SyllabusCall = Parameters<typeof generateJSON<SyllabusStructureResponse>>[0];
+
+/**
+ * One syllabus call. If the provider's recitation filter blocks it (the answer copied public text word
+ * for word), ask once more for the same pages with topic details in the model's own words.
+ * `onFallback` tells the caller so the user hears about it.
+ */
+async function callSyllabus(
+  promptFor: (detailsInOwnWords: boolean) => string,
+  params: Omit<SyllabusCall, 'prompt' | 'schemaName' | 'temperature'>,
+  onFallback: () => void,
+) {
+  const call = (own: boolean) =>
+    generateJSON<SyllabusStructureResponse>({
+      ...params,
+      prompt: promptFor(own),
+      schemaName: 'syllabusStructure',
+      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
+    });
+  const res = await call(false);
+  if (res.ok || !res.recitation) return res;
+  onFallback();
+  return call(true);
 }
 
 /** Turns the model's live stream into progress updates, like the paper and labelling imports do. */
@@ -110,17 +137,13 @@ export async function importSyllabus(
       message: 'Analyzing syllabus text...',
     });
 
-    const prompt = `${syllabusToStructurePrompt()}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`;
-
-    const res = await generateJSON<SyllabusStructureResponse>({
-      prompt,
-      schemaName: 'syllabusStructure',
-      provider,
-      apiKey,
-      modelId,
-      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
-      ...streamHandlers(onProgress, 1, 1),
-    });
+    const textNotices: string[] = [];
+    const res = await callSyllabus(
+      (own) =>
+        `${syllabusToStructurePrompt(null, own)}\n\nHere is the syllabus text:\n\"\"\"\n${source.text.trim()}\n\"\"\"`,
+      { provider, apiKey, modelId, ...streamHandlers(onProgress, 1, 1) },
+      () => textNotices.push(RECITATION_NOTICE),
+    );
 
     if (!res.ok) {
       return {
@@ -130,7 +153,7 @@ export async function importSyllabus(
       };
     }
 
-    return { ok: true, subjects: res.data.subjects };
+    return { ok: true, subjects: res.data.subjects, notice: textNotices[0] };
   }
 
   // --- Case 2 & 3: PDF or Photos ---
@@ -172,7 +195,7 @@ export async function importSyllabus(
       },
     });
 
-    // Always send the page image, even for text pages: table text extracts in a messy order.
+    // Only the rendered page IMAGE goes to the model (same as photos), never the PDF's extracted text.
     const readable = pdfResult.pages.filter((p) => p.result.base64);
     pages = readable.map((p) => p.result.base64!);
     pageNums = readable.map((p) => p.pageNumber);
@@ -219,24 +242,19 @@ export async function importSyllabus(
       message: totalChunks > 1 ? `Analyzing ${range} (part ${part} of ${totalChunks})...` : `Analyzing syllabus (${range})...`,
     });
 
-    const prompt: string =
-      `${syllabusToStructurePrompt(position)}\n\n` +
-      chunk.map((_, idx) => `--- Page ${nums[idx]} is attached as an image ---`).join('\n');
+    const pageList = chunk.map((_, idx) => `--- Page ${nums[idx]} is attached as an image ---`).join('\n');
     devLog(
       `[syllabus] part ${part}/${totalChunks}: ${range}, images ≈ ${Math.round(
         chunk.reduce((n, img) => n + img.length, 0) / 1024,
       )} KB`,
     );
-    const res = await generateJSON<SyllabusStructureResponse>({
-      prompt,
-      images: chunk,
-      schemaName: 'syllabusStructure',
-      provider,
-      apiKey,
-      modelId,
-      temperature: 0.5, // 0 let Gemma loop on endless "final checks"; 1 was needlessly random for copying text
-      ...handlers,
-    });
+    const res = await callSyllabus(
+      (own) => `${syllabusToStructurePrompt(position, own)}\n\n${pageList}`,
+      { images: chunk, provider, apiKey, modelId, ...handlers },
+      () => {
+        if (!notices.includes(RECITATION_NOTICE)) notices.push(RECITATION_NOTICE);
+      },
+    );
 
     if (res.ok) {
       batches.push(res.data.subjects);

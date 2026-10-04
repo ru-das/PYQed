@@ -65,9 +65,13 @@ Return ONLY JSON in this shape:
 /**
  * §8.1 — Syllabus → structure prompt.
  * Input: syllabus page text or images.
- * Up to 6 pages per call; later chunks are told where the previous one ended, then merged by subject name.
+ * Up to 3 pages per call; later chunks are told where the previous one ended, then merged by subject name.
  */
-export function syllabusToStructurePrompt(previous?: SyllabusPosition | null): string {
+export function syllabusToStructurePrompt(previous?: SyllabusPosition | null, detailsInOwnWords = false): string {
+  // Fallback when the provider's recitation filter blocked a word-for-word copy: names stay exact, details are summarised
+  const detailsRule = detailsInOwnWords
+    ? '- "details" = a short summary of the text printed for that topic, in your own words (at most about 20 words); "" if none. Names (subject, unit, topic) are still copied exactly.'
+    : '- "details" = the text printed for that topic, copied exactly with no length limit; "" if none.';
   // Later chunks of a long syllabus start mid-subject; name the subject so the merge can join the pieces
   const continuation = previous
     ? `\nThese pages continue a syllabus. The previous pages ended inside subject "${previous.subject}"${
@@ -87,7 +91,7 @@ Rules:
 - Skip marks distribution tables, book lists, reference lists, course outcomes (COs/POs) and other non-structural content, unless it is the only structure on the page.
 - Tables: a row with a unit or module number is a unit; the topics in that row are its topics.
 - A subject with no unit headings gets one unit per heading block or section.
-- "details" = the text printed for that topic, copied exactly with no length limit; "" if none.
+${detailsRule}
 - "code" = the course code if printed (e.g. "CS201"), else null.
 
 When unsure:
