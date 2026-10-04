@@ -20,15 +20,17 @@ export function pageToQuestionsPrompt(
   return `You are reading ${pageLabel} of a university exam question paper (PYQ). Extract every question and sub-question from this page.
 ${continuity}
 Instructions:
-- Transcribe the question text EXACTLY as printed on the page, including formulas (use plain text or simple LaTeX). Do NOT solve, answer, explain, or rephrase anything.
-- One entry per answerable part. If a question has sub-parts like (a), (b), (i), (ii), output each part as a separate question entry. Copy any shared lead-in or introductory text (e.g. "Answer the following:", "Given the graph G below:") to the beginning of each sub-part's text.
+- Copy each question's text EXACTLY as printed on the page, including formulas (use plain text or simple LaTeX). Do NOT solve, answer, explain, or rephrase anything.
+- One entry per answerable part. If a question has sub-parts like (a), (b), (i), (ii), output each part as a separate question entry. The one allowed change to the exact text: put any shared lead-in (e.g. "Answer the following:", "Given the graph G below:") at the start of each sub-part's text, copied exactly too.
 - Do NOT output a separate entry for the parent question number if its parts are answered separately.
-- "marks": Must be a number ONLY if explicitly printed on the page for that question or part, or clearly specified in group instructions (e.g. "Answer any 5: 5 x 2 = 10 marks" -> 2). Otherwise null. NEVER guess marks.
+- "marks": the number printed for that question or part; if only the group instructions give it, the marks per question (e.g. "Answer any 5: 5 x 2 = 10 marks" -> 2). If neither is printed, null.
 - "has_options": true ONLY if the question is multiple choice and lists choices like (a), (b), (c), (d) or (1), (2), (3), (4).
 - "or_alternative": true if the question is an OR alternative of the previous question (e.g. separated by "OR").
 - "year": 4-digit number ONLY if the examination year is printed on THIS page; otherwise null.
 - Skip generic paper instructions, headers, footers, university names, and page numbers.
 - "continues_previous": true if this page starts mid-sentence or mid-question from the previous page.
+- If the extracted text of the page is also given, the image is the source of truth; use the text only to help read hard characters.
+- Read the page once and write the JSON straight away. Do NOT do a final check or re-verify your copy: the student reviews and edits every question on the next screen.
 
 Output MUST be valid JSON adhering strictly to this schema:
 {
@@ -62,12 +64,14 @@ export function syllabusToStructurePrompt(): string {
   return `You are reading a university syllabus document. Extract the academic structure.
 
 Instructions:
-- Copy subject names, unit names, and topic names EXACTLY as written in the document.
+- Copy subject names, unit names, topic names and topic details EXACTLY as printed in the document (only join words that are split across a line break). Do not summarise, shorten, or reword anything.
 - Do NOT invent subjects, units, or topics that aren't in the syllabus.
 - Skip marks distribution tables, book lists, reference lists, course outcomes (COs/POs), and any non-structural content — UNLESS it's the only structure on the page.
+- Tables: a table row with a unit or module number is a unit; the topics listed in that row are its topics.
 - If a subject has no explicit unit headings, create one unit per heading block or section.
-- "details" for each topic = the syllabus text describing that topic (a few keywords, at most ~15 words; empty string if the topic name says it all).
+- "details" for each topic = the text the syllabus prints for that topic, copied exactly with no length limit; empty string if there is none.
 - Subject "code" = the course code if printed (e.g. "CS201"), otherwise null.
+- Read the page once and write the JSON straight away. Do NOT do a final check or re-verify your copy: the student reviews and edits everything on the next screen.
 
 Output MUST be valid JSON adhering strictly to this schema:
 {
@@ -126,9 +130,9 @@ Questions (format: QuestionID | Year | QuestionText):
 ${questions}
 
 Rules:
-- Group questions that ask essentially the same thing, even if worded differently or with different numbers.
+- Group questions that ask for the same task, even if worded differently or with different values. Example: "Find the shortest path in graph A" and "Use Dijkstra on graph B" are the same task.
+- Do NOT group questions that only share a topic but ask for different tasks. Example: "Define a stack" and "Convert infix to postfix using a stack" are different tasks.
 - Only group questions that are under the same topic heading. Never mix topics in one group.
-- Do NOT group questions that are merely about the same topic but ask for different things.
 - Each question ID may appear in at most one group. Every group needs at least 2 IDs.
 - Leave out questions that have no repeat. Use ONLY the IDs listed above.
 

@@ -134,6 +134,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      temperature: 1, // 0 let Gemma loop on endless "final checks"
       ...streamHandlers(onProgress, 1, 1),
     });
 
@@ -218,6 +219,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      temperature: 1, // 0 let Gemma loop on endless "final checks"
       ...streamHandlers(onProgress, 1, 1),
     });
 
@@ -253,6 +255,7 @@ export async function importSyllabus(
       provider,
       apiKey,
       modelId,
+      temperature: 1, // 0 let Gemma loop on endless "final checks"
       ...streamHandlers(onProgress, pageNum, pages.length),
     });
 

@@ -6,6 +6,10 @@ import { AI_IDLE_TIMEOUT_MS, AI_TIMEOUT_MS, OPENROUTER_BASE_URL, Provider } from
 
 // A retry after an unreadable answer gets less time, so one bad page can't block the import for 10 minutes
 const RETRY_TIMEOUT_MS = 120_000;
+// If the model's hidden reasoning runs past this many characters (~10k tokens) it is stuck in a loop:
+// stop the stream and let generateJSON ask again. ponytail: fixed cap, tune after seeing real thought lengths.
+const MAX_THOUGHT_CHARS = 40_000;
+const STUCK_THINKING = 'Model got stuck thinking';
 import { validators, ValidationResult } from './validators';
 
 /** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
@@ -14,6 +18,8 @@ export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
 export type GenerateJSONParams = {
   /** AI Studio only: when set, the answer is streamed and the call is only cut off if tokens stop arriving. */
   onStream?: (e: StreamEvent) => void;
+  /** Sampling temperature. Default 0; the syllabus call uses 1 because 0 let Gemma loop on "final checks". */
+  temperature?: number;
   /** Called just before we ask the model again because its first answer was unreadable. */
   onRetry?: () => void;
   prompt: string;
@@ -131,6 +137,7 @@ async function callGoogleAIStudio(
   images: string[] = [],
   withJsonMime: boolean = true,
   signal: AbortSignal,
+  temperature: number = 0,
 ): Promise<{ text: string; status: number; error?: string }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     modelId,
@@ -153,7 +160,7 @@ async function callGoogleAIStudio(
   }
 
   const generationConfig: Record<string, unknown> = {
-    temperature: 0,
+    temperature,
   };
   if (withJsonMime) {
     generationConfig.responseMimeType = 'application/json';
@@ -230,6 +237,7 @@ async function callGoogleAIStudioStream(
   signal: AbortSignal,
   onStream: (e: StreamEvent) => void,
   onActivity: () => void,
+  temperature: number = 0,
 ): Promise<{ text: string; status: number; error?: string }> {
   // Imported lazily so this module stays free of native modules (it is unit-tested in Node).
   // expo/fetch (unlike RN's built-in fetch) can read the response body as a stream.
@@ -246,7 +254,7 @@ async function callGoogleAIStudioStream(
       inline_data: { mime_type: 'image/jpeg', data: img.replace(/^data:image\/[a-zA-Z]+;base64,/, '') },
     });
   }
-  const generationConfig: Record<string, unknown> = { temperature: 0 };
+  const generationConfig: Record<string, unknown> = { temperature };
   if (withJsonMime) generationConfig.responseMimeType = 'application/json';
 
   const response = await streamFetch(url, {
@@ -285,6 +293,10 @@ async function callGoogleAIStudioStream(
         if (part.thought) {
           thoughts += part.text;
           onStream({ phase: 'thinking', text: thoughts });
+          if (thoughts.length > MAX_THOUGHT_CHARS && !answer) {
+            await reader.cancel().catch(() => {});
+            return { text: '', status, error: STUCK_THINKING };
+          }
         } else {
           answer += part.text;
           onStream({ phase: 'writing', text: answer });
@@ -318,6 +330,7 @@ async function callOpenAICompatible(
   withJsonMode: boolean = true,
   signal: AbortSignal,
   extraHeaders: Record<string, string> = {},
+  temperature: number = 0,
 ): Promise<{ text: string; status: number; error?: string }> {
   const url = chatCompletionsUrl(baseUrl);
 
@@ -339,7 +352,7 @@ async function callOpenAICompatible(
   const body: Record<string, unknown> = {
     model: modelId,
     messages: [{ role: 'user', content }],
-    temperature: 0,
+    temperature,
   };
   if (withJsonMode) {
     body.response_format = { type: 'json_object' };
@@ -446,6 +459,7 @@ export async function generateJSON<T = unknown>(
           controller.signal,
           params.onStream,
           onActivity,
+          params.temperature,
         );
       }
       if (params.provider === 'aistudio') {
@@ -456,6 +470,7 @@ export async function generateJSON<T = unknown>(
           params.images,
           withJsonMime,
           controller.signal,
+          params.temperature,
         );
       }
       const isOpenRouter = params.provider === 'openrouter';
@@ -468,6 +483,7 @@ export async function generateJSON<T = unknown>(
         withJsonMime,
         controller.signal,
         isOpenRouter ? { 'X-Title': 'PYQed' } : {},
+        params.temperature,
       );
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -503,7 +519,8 @@ export async function generateJSON<T = unknown>(
   }
 
   // Check HTTP errors
-  if (res.error && !res.text) {
+  // (A stuck-thinking stream is not final: it falls through to the one retry below)
+  if (res.error && !res.text && res.error !== STUCK_THINKING) {
     const friendly = toFriendlyError(
       res.status || null,
       res.error,
