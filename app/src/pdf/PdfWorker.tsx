@@ -3,8 +3,6 @@ import React, {
   useImperativeHandle,
   useRef,
   useCallback,
-  useState,
-  useEffect,
 } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
@@ -27,11 +25,15 @@ const CHUNK_SIZE = 512 * 1024; // 512 KB chunks for large base64 strings
 // Android can kill the WebView while the app is in the background; without a timeout the import would wait forever.
 const LOAD_TIMEOUT_MS = 60_000;
 const PAGE_TIMEOUT_MS = 60_000;
+// The WebView has to parse ~1 MB of pdf.js before it says "ready"; if it never does, fail instead of hanging.
+const READY_TIMEOUT_MS = 30_000;
 
 export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
   function PdfWorker({ onReady, onError }, ref) {
     const webViewRef = useRef<WebView>(null);
-    const [isReady, setIsReady] = useState(false);
+    // A ref, not state: the importer holds on to the handle from the first render, so a state value
+    // captured in its closure would stay "false" forever and every call would wait for nothing.
+    const isReadyRef = useRef(false);
     const readyResolvers = useRef<Array<() => void>>([]);
 
     // Promise handlers for pending operations
@@ -51,11 +53,16 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
     >(new Map());
 
     const waitForReady = useCallback((): Promise<void> => {
-      if (isReady) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        readyResolvers.current.push(resolve);
+      if (isReadyRef.current) return Promise.resolve();
+      return new Promise<void>((resolve, reject) => {
+        const resolver = () => { clearTimeout(timer); resolve(); };
+        const timer = setTimeout(() => {
+          readyResolvers.current = readyResolvers.current.filter((r) => r !== resolver);
+          reject(new Error("The PDF reader didn't start. Try again."));
+        }, READY_TIMEOUT_MS);
+        readyResolvers.current.push(resolver);
       });
-    }, [isReady]);
+    }, []);
 
     const postToWebView = useCallback((payload: unknown) => {
       if (webViewRef.current) {
@@ -74,7 +81,7 @@ export const PdfWorker = forwardRef<PdfWorkerHandle, PdfWorkerProps>(
 
         switch (msg.type) {
           case 'ready': {
-            setIsReady(true);
+            isReadyRef.current = true;
             readyResolvers.current.forEach((resolve) => resolve());
             readyResolvers.current = [];
             onReady?.();
