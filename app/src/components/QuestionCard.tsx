@@ -12,7 +12,6 @@ export type CardQuestion = Pick<Question, 'id' | 'number' | 'text' | 'type' | 'n
   group?: string;
   year?: number | null;
   topicConfidence?: Question['topicConfidence'];
-  editedByUser?: boolean;
 };
 
 type Props = {
@@ -76,7 +75,7 @@ export function QuestionCard({ q, versions = [], all, groups, topicName, showTop
           {times > 1 &&
             chip(`Asked ${times}×${years.length ? ` (${years.join(', ')})` : ''}`, colors.amber, colors.amberBg, colors.amber)}
           {times <= 1 && q.year ? chip(String(q.year), colors.textSecondary, colors.chip) : null}
-          {q.topicConfidence === 'low' && !q.editedByUser && chip('Low confidence', colors.amber, colors.amberBg)}
+          {q.topicConfidence === 'low' && chip('Low confidence', colors.amber, colors.amberBg)}
         </View>
         <View style={styles.actions}>
           {onMove && iconBtn('folder-open-outline', 'Move to topic', onMove, colors.textSecondary)}

@@ -391,9 +391,7 @@ export default function SubjectScreen() {
                                   subject.questions,
                                   paperCount,
                                 );
-                                const hasLowConf = tQuestions.some(
-                                  (q) => q.topicConfidence === 'low' && !q.editedByUser,
-                                );
+                                const hasLowConf = tQuestions.some((q) => q.topicConfidence === 'low');
 
                                 return (
                                   <TouchableOpacity
