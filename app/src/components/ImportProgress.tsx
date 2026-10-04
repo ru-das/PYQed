@@ -26,7 +26,7 @@ export const SYLLABUS_PHRASES = [
   'Ignoring the book list...',
   'Untangling sub-topics...',
   'Counting topics twice...',
-  'Asking Gemma nicely...',
+  'Asking the AI nicely...',
   'Skipping the course outcomes...',
   'Matching topics to units...',
   'Reading between the table lines...',
@@ -52,6 +52,82 @@ export const SYLLABUS_PHRASES = [
   'Warming up the question bank...',
   'Almost like having a topper friend...',
 ];
+
+/** Phrases while a paper's pages are read */
+export const PAPER_PHRASES = [
+  'Finding where Q3 ends...',
+  'Reading the marks in the margin...',
+  'Spotting OR questions...',
+  'Copying, not solving...',
+  'Squinting at the scan...',
+  'Skipping the instructions box...',
+  'Hunting for the year...',
+  'Counting sub-parts (a), (b), (c)...',
+  'Reading formulas carefully...',
+  'Checking the question numbers...',
+  'Ignoring page numbers...',
+  'Working out "Answer any five"...',
+  'Not guessing any marks...',
+  'Straightening the page in my head...',
+  'Looking for Group A, Group B...',
+  'Copying the lead-in text to each part...',
+  'Peeking at the previous page...',
+  'Turning a scan into text...',
+  'Flipping through old papers...',
+  'Making the question bank longer...',
+];
+
+/** Phrases while questions are matched to topics and repeats are found */
+export const LABEL_PHRASES = [
+  'Matching questions to topics...',
+  'Spotting repeat offenders...',
+  "Finding the examiner's favourite topics...",
+  'Reading the syllabus again...',
+  'Checking which questions came back...',
+  'Sorting questions into units...',
+  'Comparing wording across years...',
+  'Same question, new numbers...',
+  'Leaving unsure ones for you to check...',
+  'Building the topic list...',
+  'Counting how often things repeat...',
+  'Looking for déjà vu questions...',
+  'Filing questions under topics...',
+  'Sharpening the question bank...',
+  'Almost like having a topper friend...',
+];
+
+type Live = { phase: 'thinking' | 'writing'; peek?: string; found?: number } | undefined;
+type Pos = { current: number; total: number; live?: Live };
+
+/** "AI is thinking" or "6 questions so far", for the current step's detail line */
+function liveDetail(live: Live, noun: string): string | undefined {
+  if (!live) return undefined;
+  if (live.phase === 'thinking') return 'AI is thinking';
+  if (live.found === undefined) return 'Writing the result';
+  return `${live.found} ${noun}${live.found === 1 ? '' : 's'} so far`;
+}
+
+const stepsAt = (labels: string[], cur: number, detail?: string): ProgressStep[] =>
+  labels.map((label, i) => ({
+    label,
+    state: i < cur ? 'done' : i === cur ? 'current' : 'pending',
+    detail: i === cur ? detail : undefined,
+  }));
+
+/** Steps while a paper is read: prepare, one AI call per page, then check. */
+export function paperSteps(stage: 'reading' | 'extracting' | 'done', p: Pos): ProgressStep[] {
+  const live = liveDetail(p.live, 'question');
+  const detail = `Page ${p.current} of ${p.total}${live ? ` · ${live}` : ''}`;
+  const cur = stage === 'reading' ? 0 : stage === 'extracting' ? 1 : 2;
+  return stepsAt(['Prepare pages', 'Read pages', 'Check & organise'], cur, cur === 1 ? detail : undefined);
+}
+
+/** Steps while questions are matched to topics, then grouped into repeats. */
+export function labelSteps(kind: 'labels' | 'repeats', p: Pos): ProgressStep[] {
+  const live = liveDetail(p.live, kind === 'labels' ? 'label' : 'group');
+  const detail = `Batch ${p.current} of ${p.total}${live ? ` · ${live}` : ''}`;
+  return stepsAt(['Match questions to topics', 'Find repeated questions'], kind === 'labels' ? 0 : 1, detail);
+}
 
 // Fisher-Yates, so each import shows the lines in a different order
 function shuffled<T>(list: T[]): T[] {
@@ -206,7 +282,7 @@ export function ImportProgress({
         <View style={[styles.hint, { backgroundColor: colors.accent + '15', borderColor: colors.accent }]}>
           <Ionicons name="information-circle-outline" size={20} color={colors.accent} />
           <Text style={[styles.hintText, { color: colors.text }]}>
-            Tables can take Gemma a few minutes. You can leave this screen and do something else; we'll keep
+            Tables can take the AI a few minutes. You can leave this screen and do something else; we'll keep
             going and notify you when it's ready.
           </Text>
         </View>

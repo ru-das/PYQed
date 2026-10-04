@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Modal,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -23,6 +24,7 @@ import {
   PaperImportProgress,
   PageExtraction,
   extractPage,
+  pageStreamHandler,
 } from '../src/ai/importPaper';
 import {
   detectNumberingGaps,
@@ -33,7 +35,7 @@ import { deriveQuestionType, checkNeedsReview, RawExtractedQuestion } from '../s
 import { showProgress, finish } from '../src/notify';
 import { PdfWorker, PdfWorkerHandle } from '../src/pdf/PdfWorker';
 import { ApiKeySheet } from '../src/components/ApiKeySheet';
-import { ImportProgress } from '../src/components/ImportProgress';
+import { ImportProgress, PAPER_PHRASES, LABEL_PHRASES, paperSteps, labelSteps } from '../src/components/ImportProgress';
 import {
   getSubject,
   saveSubject,
@@ -117,10 +119,13 @@ export default function PaperImportScreen() {
     message: 'Starting paper import...',
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Which labelling step is running (topics first, then repeats) and whether a single page is being retried
+  const [labelKind, setLabelKind] = useState<'labels' | 'repeats'>('labels');
+  const [retrying, setRetrying] = useState(false);
   // Elapsed seconds for the current AI call; restarts whenever progress moves on
   const [elapsedSec, setElapsedSec] = useState(0);
   useEffect(() => {
-    if ((step !== 'processing' && step !== 'labelling') || errorMessage) return;
+    if ((step !== 'processing' && step !== 'labelling' && !retrying) || errorMessage) return;
     const start = Date.now();
     setElapsedSec(0);
     const tick = setInterval(
@@ -128,7 +133,7 @@ export default function PaperImportScreen() {
       1000,
     );
     return () => clearInterval(tick);
-  }, [step, errorMessage, progress.stage, progress.current]);
+  }, [step, errorMessage, retrying, progress.stage, progress.current]);
   const [partialPages, setPartialPages] = useState<PageExtraction[]>([]);
   const [resumePage, setResumePage] = useState<number>(0);
 
@@ -337,11 +342,11 @@ export default function PaperImportScreen() {
   };
 
   // Read one failed page again (the image is kept in memory during review)
-  const [retrying, setRetrying] = useState(false);
   const retryPage = async () => {
     const page = pages[activePageIndex];
     if (!page?.imageBase64 || retrying) return;
     setRetrying(true);
+    setProgress({ stage: 'extracting', current: page.pageNumber, total: pages.length, message: `Reading page ${page.pageNumber}...` });
     try {
       const ai = await getApiSettings();
       const prev = pages[activePageIndex - 1]?.questions ?? [];
@@ -350,6 +355,7 @@ export default function PaperImportScreen() {
         pages.length,
         prev.length ? prev[prev.length - 1].number : undefined,
         ai,
+        pageStreamHandler(setProgress, page.pageNumber, pages.length),
       );
       if (!res.ok) {
         Alert.alert("Still couldn't read this page", res.friendlyError);
@@ -514,12 +520,7 @@ export default function PaperImportScreen() {
             apiSettings.apiKey,
             apiSettings.modelId,
             (p) => {
-              setProgress({
-                stage: 'extracting',
-                current: p.current,
-                total: p.total,
-                message: p.message,
-              });
+              setProgress({ stage: 'extracting', ...p });
               showProgress('Labelling questions', p.message);
             },
           );
@@ -530,6 +531,7 @@ export default function PaperImportScreen() {
           await saveSubject(updatedSubject);
 
           // 6. Repeat groups (§8.4) for topics that received new questions
+          setLabelKind('repeats');
           const grouped = await groupRepeats(
             updatedSubject,
             newQuestionIds,
@@ -537,12 +539,7 @@ export default function PaperImportScreen() {
             apiSettings.apiKey,
             apiSettings.modelId,
             (p) => {
-              setProgress({
-                stage: 'extracting',
-                current: p.current,
-                total: p.total,
-                message: p.message,
-              });
+              setProgress({ stage: 'extracting', ...p });
               showProgress('Labelling questions', p.message);
             },
           );
@@ -788,6 +785,9 @@ export default function PaperImportScreen() {
             <ImportProgress
               title={progress.message}
               elapsedSec={elapsedSec}
+              steps={paperSteps(progress.stage, progress)}
+              phrases={PAPER_PHRASES}
+              peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
               current={progress.current}
               total={progress.total}
             />
@@ -795,12 +795,28 @@ export default function PaperImportScreen() {
         </View>
       )}
 
+      {/* --- Retry one page: same progress page, in a modal over the review --- */}
+      <Modal visible={retrying} animationType="fade" onRequestClose={() => {}}>
+        <View style={[styles.centerContent, { backgroundColor: colors.background }]}>
+          <ImportProgress
+            title={progress.message}
+            elapsedSec={elapsedSec}
+            steps={paperSteps('extracting', progress)}
+            phrases={PAPER_PHRASES}
+            peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
+          />
+        </View>
+      </Modal>
+
       {/* --- Step: Labelling --- */}
       {step === 'labelling' && (
         <View style={styles.centerContent}>
           <ImportProgress
-            title={progress.message || 'Labelling topics...'}
+            title="Sorting questions into topics..."
             elapsedSec={elapsedSec}
+            steps={labelSteps(labelKind, progress)}
+            phrases={LABEL_PHRASES}
+            peek={progress.live?.phase === 'thinking' ? progress.live.peek : undefined}
             current={progress.current}
             total={progress.total}
           />

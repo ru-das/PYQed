@@ -53,7 +53,7 @@ type EditableSubject = {
 /** The real steps of the import, derived from what the job is doing right now. */
 function syllabusSteps(job: SyllabusJob): ProgressStep[] {
   const { stage, found } = job.progress;
-  const labels = ['Prepare pages', 'Gemma is thinking', 'Writing the result'];
+  const labels = ['Prepare pages', 'AI is thinking', 'Writing the result'];
   if (job.retried) labels.push('Asking again (answer was messy)');
   labels.push('Check & organise');
   const retryIdx = job.retried ? 3 : -1;

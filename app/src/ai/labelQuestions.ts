@@ -7,7 +7,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON } from './client';
+import { generateJSON, streamProgress, StreamProgress } from './client';
 import { topicLabelsPrompt } from './prompts';
 import { validateTopicLabels, RawTopicLabel, TopicLabelsResponse } from './validators';
 import { Subject, Question, Unit } from '../logic/subject';
@@ -16,6 +16,7 @@ export type LabelProgress = {
   current: number; // chunk number
   total: number; // total chunks
   message: string;
+  live?: StreamProgress;
 };
 
 const CHUNK_SIZE = 25;
@@ -118,14 +119,11 @@ export async function labelQuestions(
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    onProgress?.({
-      current: i + 1,
-      total: chunks.length,
-      message: `Labelling questions ${i * CHUNK_SIZE + 1}–${Math.min(
-        (i + 1) * CHUNK_SIZE,
-        questionsToLabel.length,
-      )} of ${questionsToLabel.length}...`,
-    });
+    const msg = `Labelling questions ${i * CHUNK_SIZE + 1}–${Math.min(
+      (i + 1) * CHUNK_SIZE,
+      questionsToLabel.length,
+    )} of ${questionsToLabel.length}...`;
+    onProgress?.({ current: i + 1, total: chunks.length, message: msg });
 
     const questions = buildQuestionList(chunk);
 
@@ -136,6 +134,10 @@ export async function labelQuestions(
         provider,
         apiKey,
         modelId,
+        onStream: streamProgress(
+          (live) => onProgress?.({ current: i + 1, total: chunks.length, message: msg, live }),
+          /"q"\s*:/g,
+        ),
       });
 
       const validated = res.ok ? validateTopicLabels(res.data) : null;

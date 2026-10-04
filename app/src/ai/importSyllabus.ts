@@ -68,7 +68,7 @@ function streamHandlers(
           stage: 'thinking',
           current,
           total,
-          message: 'Gemma is thinking...',
+          message: 'AI is thinking...',
           peek: e.text.replace(/\s+/g, ' ').slice(-90),
         });
       } else {

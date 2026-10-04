@@ -6,13 +6,13 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON } from './client';
+import { generateJSON, streamProgress, StreamProgress } from './client';
 import { repeatGroupsPrompt } from './prompts';
 import { validateRepeatGroups, RepeatGroupsResponse } from './validators';
 import { Subject, Question } from '../logic/subject';
 import { applyRepeatGroups } from '../logic/ranking';
 
-export type RepeatProgress = { current: number; total: number; message: string };
+export type RepeatProgress = { current: number; total: number; message: string; live?: StreamProgress };
 
 const BATCH_QUESTIONS = 60; // questions per AI call; a single bigger topic still gets its own call
 
@@ -74,11 +74,8 @@ export async function groupRepeats(
 
   let questions = subject.questions;
   for (let i = 0; i < batches.length; i++) {
-    onProgress?.({
-      current: i + 1,
-      total: batches.length,
-      message: `Finding repeated questions (${i + 1} of ${batches.length})...`,
-    });
+    const msg = `Finding repeated questions (${i + 1} of ${batches.length})...`;
+    onProgress?.({ current: i + 1, total: batches.length, message: msg });
 
     // Short aliases (Q1, Q2...) instead of the near-identical real IDs, which models garble when copying back
     const aliasToId = new Map<string, string>();
@@ -101,6 +98,7 @@ export async function groupRepeats(
         provider,
         apiKey,
         modelId,
+        onStream: streamProgress((live) => onProgress?.({ current: i + 1, total: batches.length, message: msg, live })),
       });
       if (!res.ok) continue;
       const normalised = { groups: res.data.groups.map((g) => g.map((a) => String(a).trim().toUpperCase())) };

@@ -15,6 +15,27 @@ import { validators, ValidationResult } from './validators';
 /** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
 export type StreamEvent = { phase: 'thinking' | 'writing'; text: string };
 
+/** What a progress screen shows about a live stream: the phase, the tail of the reasoning, an item count. */
+export type StreamProgress = { phase: 'thinking' | 'writing'; peek?: string; found?: number };
+
+/**
+ * Turns the raw stream into StreamProgress updates (at most one per 500 ms).
+ * `countRe` counts items in the partial JSON answer (e.g. /"number"\s*:/g for questions).
+ */
+export function streamProgress(emit: (p: StreamProgress) => void, countRe?: RegExp) {
+  let last = 0;
+  return (e: StreamEvent) => {
+    const now = Date.now();
+    if (now - last < 500) return;
+    last = now;
+    if (e.phase === 'thinking') {
+      emit({ phase: 'thinking', peek: e.text.replace(/\s+/g, ' ').slice(-90) });
+    } else {
+      emit({ phase: 'writing', found: countRe ? (e.text.match(countRe) || []).length : undefined });
+    }
+  };
+}
+
 export type GenerateJSONParams = {
   /** AI Studio only: when set, the answer is streamed and the call is only cut off if tokens stop arriving. */
   onStream?: (e: StreamEvent) => void;

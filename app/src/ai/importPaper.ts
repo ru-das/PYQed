@@ -6,7 +6,7 @@
  */
 
 import { Provider, MAX_PAGES_PER_IMPORT } from '../config';
-import { generateJSON, GenerateJSONResult } from './client';
+import { generateJSON, GenerateJSONResult, StreamEvent, streamProgress, StreamProgress } from './client';
 import { pageToQuestionsPrompt } from './prompts';
 import {
   ExtractedPaperMetadata,
@@ -34,7 +34,24 @@ export type PaperImportProgress = {
   current: number;
   total: number;
   message: string;
+  /** Live signal from the model while it reads the page (see StreamProgress) */
+  live?: StreamProgress;
 };
+
+/** Counts questions in the partial JSON answer */
+const QUESTION_COUNT_RE = /"number"\s*:/g;
+
+/** Handler for extractPage that reports the model's live stream as PaperImportProgress */
+export function pageStreamHandler(
+  onProgress: ((p: PaperImportProgress) => void) | undefined,
+  current: number,
+  total: number,
+) {
+  return streamProgress(
+    (live) => onProgress?.({ stage: 'extracting', current, total, message: `Reading page ${current} of ${total}...`, live }),
+    QUESTION_COUNT_RE,
+  );
+}
 
 export type PaperImportResult =
   | {
@@ -78,6 +95,7 @@ export function extractPage(
   totalPages: number,
   previousLastQuestion: string | undefined,
   ai: AiSettings,
+  onStream?: (e: StreamEvent) => void,
 ): Promise<GenerateJSONResult<PageQuestionsResponse>> {
   const basePrompt = pageToQuestionsPrompt(page.pageNumber, totalPages, previousLastQuestion);
   const prompt = page.text
@@ -87,6 +105,7 @@ export function extractPage(
     prompt,
     images: page.imageBase64 ? [page.imageBase64] : undefined,
     schemaName: 'pageQuestions',
+    onStream,
     ...ai,
   });
 }
@@ -213,6 +232,7 @@ export async function importPaper(
       totalPages,
       previousLastQuestion,
       { provider, apiKey, modelId },
+      pageStreamHandler(onProgress, pageNum, totalPages),
     );
 
     if (!res.ok) {

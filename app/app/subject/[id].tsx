@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Modal,
 } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,10 +37,12 @@ import {
 } from '../../src/logic/ranking';
 import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
+import { ImportProgress, LABEL_PHRASES, labelSteps } from '../../src/components/ImportProgress';
 import { QuestionCard } from '../../src/components/QuestionCard';
 import { getApiSettings } from '../../src/ai/settings';
 import { labelQuestions } from '../../src/ai/labelQuestions';
 import { groupRepeats } from '../../src/ai/groupRepeats';
+import type { StreamProgress } from '../../src/ai/client';
 import { topicProgress } from '../../src/logic/practice';
 
 async function shareSubject(s: Subject, withImages: boolean) {
@@ -111,6 +114,17 @@ export default function SubjectScreen() {
   const [filters, setFilters] = useState<QuestionFilters>({});
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [relabelling, setRelabelling] = useState(false);
+  // Live state of the "Sort unassigned" run, shown on the same progress page as a paper import
+  const [relabelKind, setRelabelKind] = useState<'labels' | 'repeats'>('labels');
+  const [relabelProg, setRelabelProg] = useState<{ current: number; total: number; live?: StreamProgress }>({ current: 0, total: 0 });
+  const [relabelSec, setRelabelSec] = useState(0);
+  useEffect(() => {
+    if (!relabelling) return;
+    const start = Date.now();
+    setRelabelSec(0);
+    const tick = setInterval(() => setRelabelSec(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(tick);
+  }, [relabelling]);
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
 
   const initialisedRef = useRef(false);
@@ -177,11 +191,14 @@ export default function SubjectScreen() {
       Alert.alert('API key needed', 'Add your API key in Settings, then try again.');
       return;
     }
+    setRelabelKind('labels');
+    setRelabelProg({ current: 0, total: 0 });
     setRelabelling(true);
     try {
       const ids = unassignedQs.filter((q) => !q.editedByUser).map((q) => q.id);
-      let next: Subject = { ...subject, questions: await labelQuestions(subject, ids, provider, apiKey, modelId) };
-      next = { ...next, questions: await groupRepeats(next, ids, provider, apiKey, modelId) };
+      let next: Subject = { ...subject, questions: await labelQuestions(subject, ids, provider, apiKey, modelId, setRelabelProg) };
+      setRelabelKind('repeats');
+      next = { ...next, questions: await groupRepeats(next, ids, provider, apiKey, modelId, setRelabelProg) };
       await saveSubject(next);
       setSubject(next);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -832,6 +849,21 @@ export default function SubjectScreen() {
           <Text style={{ color: colors.accentText, fontWeight: '700' }}>Practice</Text>
         </TouchableOpacity>
       )}
+
+      {/* Same progress page as a paper import while unassigned questions are sorted */}
+      <Modal visible={relabelling} animationType="fade" onRequestClose={() => {}}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg, backgroundColor: colors.background }}>
+          <ImportProgress
+            title="Sorting questions into topics..."
+            elapsedSec={relabelSec}
+            steps={labelSteps(relabelKind, relabelProg)}
+            phrases={LABEL_PHRASES}
+            peek={relabelProg.live?.phase === 'thinking' ? relabelProg.live.peek : undefined}
+            current={relabelProg.current}
+            total={relabelProg.total}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
