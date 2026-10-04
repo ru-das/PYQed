@@ -12,6 +12,22 @@ const MAX_THOUGHT_CHARS = 40_000;
 const STUCK_THINKING = 'Model got stuck thinking';
 /** The model hit its output-token cap (thinking tokens count too) before it finished the JSON. */
 export const ANSWER_CUT_OFF = 'Answer was cut off (output token limit)';
+const STOPPED_EARLY = 'Model stopped early';
+
+/**
+ * Why a finished stream is not a usable answer: null for a normal stop, else the error to report.
+ * MAX_TOKENS is the output cap; anything else but STOP (RECITATION, SAFETY, OTHER, ...) means the
+ * provider ended the answer midway, and asking again would stop at the same place.
+ */
+export function finishError(reason?: string | null): string | null {
+  if (!reason || reason === 'STOP') return null;
+  return reason === 'MAX_TOKENS' ? ANSWER_CUT_OFF : `${STOPPED_EARLY} (${reason})`;
+}
+
+/** Metro-terminal breadcrumbs while debugging imports (never the key or page images). Node tests have no __DEV__. */
+export function devLog(...args: unknown[]) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) console.log(...args);
+}
 import { validators, ValidationResult } from './validators';
 
 /** Live signal while the model streams: its reasoning ("thinking") or the answer text so far ("writing"). */
@@ -261,6 +277,10 @@ async function callGoogleAIStudio(
   const candidate = json?.candidates?.[0];
   const responseParts = candidate?.content?.parts;
 
+  // A blocked prompt has no candidate; a stopped answer may have none either
+  const stopped = finishError(json?.promptFeedback?.blockReason ?? candidate?.finishReason);
+  if (stopped) return { text: '', status, error: stopped };
+
   if (!Array.isArray(responseParts) || responseParts.length === 0) {
     return { text: '', status, error: 'Empty response candidate from model' };
   }
@@ -270,7 +290,6 @@ async function callGoogleAIStudio(
     .map((part: any) => part.text || '')
     .join('');
 
-  if (candidate.finishReason === 'MAX_TOKENS') return { text: '', status, error: ANSWER_CUT_OFF };
   return { text, status };
 }
 
@@ -348,17 +367,22 @@ async function callGoogleAIStudioStream(
   let buffer = '';
   let answer = '';
   let thoughts = '';
-  let cutOff = false;
+  let finish: string | undefined; // last finishReason / blockReason seen
+  let opened = false;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     onActivity();
+    if (!opened) {
+      opened = true;
+      devLog(`[ai] stream opened (status ${status})`);
+    }
     buffer += decoder.decode(value, { stream: true });
     const { events, rest } = parseSSE(buffer);
     buffer = rest;
     for (const ev of events) {
-      if (ev?.candidates?.[0]?.finishReason === 'MAX_TOKENS') cutOff = true;
+      finish = ev?.promptFeedback?.blockReason ?? ev?.candidates?.[0]?.finishReason ?? finish;
       for (const part of ev?.candidates?.[0]?.content?.parts ?? []) {
         if (!part.text) continue;
         if (part.thought) {
@@ -376,7 +400,13 @@ async function callGoogleAIStudioStream(
     }
   }
 
-  if (cutOff) return { text: '', status, error: ANSWER_CUT_OFF };
+  devLog(
+    `[ai] finished: finishReason=${finish}, thoughts=${thoughts.length} chars, answer=${answer.length} chars, tail=${JSON.stringify(
+      answer.slice(-80),
+    )}`,
+  );
+  const stopped = finishError(finish);
+  if (stopped) return { text: '', status, error: stopped };
   if (!answer) return { text: '', status, error: 'Empty response candidate from model' };
   return { text: answer, status };
 }
@@ -593,14 +623,20 @@ export async function generateJSON<T = unknown>(
     }
   }
 
-  // A cut-off answer is final: a retry would hit the same token cap
-  if (res.error === ANSWER_CUT_OFF) {
+  // A cut-off or early-stopped answer is final: a retry would stop at the same place
+  if (res.error === ANSWER_CUT_OFF || res.error?.startsWith(STOPPED_EARLY)) {
+    const reason = res.error.match(/\((\w+)\)/)?.[1];
     return {
       ok: false,
       error: res.error,
-      friendlyError: 'The answer was too long and got cut off.',
+      friendlyError:
+        res.error === ANSWER_CUT_OFF
+          ? 'The answer was too long and got cut off.'
+          : reason === 'RECITATION'
+            ? 'Google stopped Gemma because its answer copied text found on the web word for word (RECITATION).'
+            : `Gemma stopped early (${reason}). Try again or use fewer pages.`,
       fatal: false,
-      cutOff: true,
+      cutOff: res.error === ANSWER_CUT_OFF,
       timeMs: Date.now() - startTime,
     };
   }

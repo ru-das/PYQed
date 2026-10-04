@@ -7,7 +7,7 @@
  */
 
 import { Provider } from '../config';
-import { generateJSON, streamProgress, StreamProgress } from './client';
+import { devLog, generateJSON, streamProgress, StreamProgress } from './client';
 import { syllabusToStructurePrompt } from './prompts';
 import {
   RawSyllabusSubject,
@@ -222,6 +222,11 @@ export async function importSyllabus(
     const prompt: string =
       `${syllabusToStructurePrompt(position)}\n\n` +
       chunk.map((_, idx) => `--- Page ${nums[idx]} is attached as an image ---`).join('\n');
+    devLog(
+      `[syllabus] part ${part}/${totalChunks}: ${range}, images ≈ ${Math.round(
+        chunk.reduce((n, img) => n + img.length, 0) / 1024,
+      )} KB`,
+    );
     const res = await generateJSON<SyllabusStructureResponse>({
       prompt,
       images: chunk,

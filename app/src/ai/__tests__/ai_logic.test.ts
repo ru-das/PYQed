@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { extractJSON, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
+import { ANSWER_CUT_OFF, extractJSON, finishError, chatCompletionsUrl, parseSSE, googleGenerationConfig } from '../client';
 import {
   validateRepeatGroups,
   deriveQuestionType,
@@ -10,6 +10,17 @@ import {
 } from '../validators';
 import { pageToQuestionsPrompt, repeatGroupsPrompt, syllabusToStructurePrompt, topicLabelsPrompt } from '../prompts';
 import { lastSyllabusPosition, mergeSyllabusSubjects } from '../../logic/syllabus';
+
+describe('finishError', () => {
+  it('accepts a normal stop', () => {
+    assert.strictEqual(finishError('STOP'), null);
+    assert.strictEqual(finishError(undefined), null);
+  });
+  it('reports the output cap and any other early stop', () => {
+    assert.strictEqual(finishError('MAX_TOKENS'), ANSWER_CUT_OFF);
+    assert.strictEqual(finishError('RECITATION'), 'Model stopped early (RECITATION)');
+  });
+});
 
 describe('extractJSON around extra text', () => {
   it('ignores an outline before and fix lines after the JSON', () => {
