@@ -147,14 +147,7 @@ export async function importSyllabus(
   const { source, provider, apiKey, modelId, pdfWorker, onProgress, signal } = options;
   const stopped = { ok: false as const, error: 'Cancelled', friendlyError: 'Stopped.' };
 
-  if (!apiKey || !apiKey.trim()) {
-    return {
-      ok: false,
-      error: 'Missing API key',
-      friendlyError: "Your API key doesn't work. Check it in Settings.",
-    };
-  }
-
+  // A missing key (or base URL) is reported by generateJSON; OpenAI-compatible servers may run without a key
 
   // --- Case 1: Pasted Text ---
   if (source.type === 'text') {

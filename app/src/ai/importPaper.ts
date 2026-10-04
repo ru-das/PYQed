@@ -163,9 +163,7 @@ export async function importPaper(
     detectedSession: session,
   });
 
-  if (!apiKey || !apiKey.trim()) {
-    return fail('Missing API key', "Your API key doesn't work. Check it in Settings.");
-  }
+  // A missing key (or base URL) is reported by generateJSON; OpenAI-compatible servers may run without a key
 
   // --- Step 1: Work out how many pages there are and how to get each one ---
   let totalPages = 0;

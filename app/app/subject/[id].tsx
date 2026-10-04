@@ -42,7 +42,7 @@ import * as Haptics from '../../src/haptics';
 import { ImportProgress, LABEL_PHRASES, labelSteps } from '../../src/components/ImportProgress';
 import { QuestionCard } from '../../src/components/QuestionCard';
 import { Button, Chip, EmptyState, Segmented } from '../../src/components/ui';
-import { getApiSettings } from '../../src/ai/settings';
+import { getApiSettings, isConfigured } from '../../src/ai/settings';
 import { labelQuestions } from '../../src/ai/labelQuestions';
 import type { StreamProgress } from '../../src/ai/client';
 import { topicProgress } from '../../src/logic/practice';
@@ -166,8 +166,9 @@ export default function SubjectScreen() {
 
   // Try again to match unassigned questions to topics (e.g. after a failed run or after adding topics)
   const relabelUnassigned = async () => {
-    const { provider, apiKey, modelId } = await getApiSettings();
-    if (!apiKey.trim()) {
+    const settings = await getApiSettings();
+    const { provider, apiKey, modelId } = settings;
+    if (!isConfigured(settings)) {
       Alert.alert('API key needed', 'Add your API key in Settings, then try again.');
       return;
     }

@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { toast } from '../src/components/Toast';
 import { useThemeColors, Spacing, FontSize, BorderRadius } from '../src/theme';
 import { pickPhotos } from '../src/pick';
-import { getApiSettings, hasApiKey } from '../src/ai/settings';
+import { getApiSettings, hasApiKey, isConfigured } from '../src/ai/settings';
 import { parseMarks } from '../src/components/QuestionFields';
 import { QuestionCard } from '../src/components/QuestionCard';
 import { QuestionEditModal } from '../src/components/QuestionEditModal';
@@ -539,7 +539,7 @@ export default function PaperImportScreen() {
       labelNote = ' Add a syllabus to sort them into topics.';
     } else {
       const apiSettings = await getApiSettings();
-      if (apiSettings.apiKey && apiSettings.apiKey.trim().length > 0) {
+      if (isConfigured(apiSettings)) {
         setStep('labelling');
         setProgress({
           stage: 'extracting',

@@ -64,13 +64,15 @@ export async function getApiSettings(): Promise<ApiSettings> {
 }
 
 /**
- * Checks if the active provider is ready to use.
+ * Whether these settings are enough to call the AI.
  * OpenAI-compatible servers may run without a key (e.g. a local server), so they only need a base URL.
  */
+export const isConfigured = ({ provider, apiKey, baseUrl }: ApiSettings) =>
+  (provider === 'openai' ? baseUrl : apiKey).trim().length > 0;
+
+/** Checks if the active provider is ready to use. */
 export async function hasApiKey(): Promise<boolean> {
-  const { provider, apiKey, baseUrl } = await getApiSettings();
-  if (provider === 'openai') return baseUrl.trim().length > 0;
-  return apiKey.trim().length > 0;
+  return isConfigured(await getApiSettings());
 }
 
 /**
