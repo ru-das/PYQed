@@ -183,6 +183,7 @@ export async function importSyllabus(
       };
     }
 
+    if (res.partly) textNotices.push('Only part of the text could be read; check the end of the result.');
     return { ok: true, subjects: res.data.subjects, notice: textNotices.join('\n') || undefined };
   }
 
