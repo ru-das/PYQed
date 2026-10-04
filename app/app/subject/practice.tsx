@@ -7,7 +7,7 @@ import { useThemeColors, Spacing, FontSize, BorderRadius } from '../../src/theme
 import { getSubject, saveSubject, Subject, Question } from '../../src/store/subjects';
 import { QuestionFilters, askedYears, highPriorityUnitIds } from '../../src/logic/ranking';
 import { Button, Chip, Footer } from '../../src/components/ui';
-import { practicePool, weightedShuffle, recordAnswer, topicProgress, UNASSIGNED } from '../../src/logic/practice';
+import { practicePool, weightedShuffle, recordGroupAnswer, topicProgress, UNASSIGNED } from '../../src/logic/practice';
 
 const TYPES: Question['type'][] = ['mcq', 'short', 'long', 'other'];
 const MARKS: { key: NonNullable<QuestionFilters['marksRange']>; label: string }[] = [
@@ -90,7 +90,7 @@ export default function PracticeScreen() {
       setIndex(index + 1);
     }
     // Save right away so progress survives quitting mid-session.
-    const updated = { ...subject, practice: recordAnswer(subject.practice, q.id, a) };
+    const updated = { ...subject, practice: recordGroupAnswer(subject.practice, q, subject.questions, a) };
     setSubject(updated);
     try {
       await saveSubject(updated);

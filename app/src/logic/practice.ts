@@ -55,6 +55,20 @@ export function recordAnswer(
   };
 }
 
+/**
+ * The deck shows one card per repeat group, so an answer counts for every wording in the group:
+ * topic progress can reach 100%, and the state survives a newer paper changing which wording is shown.
+ */
+export function recordGroupAnswer(
+  practice: Record<string, PracticeState>,
+  q: Question,
+  all: Question[],
+  answer: 'got' | 'revise',
+): Record<string, PracticeState> {
+  const ids = q.repeatGroupId ? all.filter((m) => m.repeatGroupId === q.repeatGroupId).map((m) => m.id) : [q.id];
+  return ids.reduce((p, id) => recordAnswer(p, id, answer), practice);
+}
+
 /** Practised ÷ total for one topic (practised = seen at least once). */
 export function topicProgress(
   topicId: string,

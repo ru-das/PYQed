@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { practicePool, weightedShuffle, recordAnswer, topicProgress } from '../practice';
+import { practicePool, weightedShuffle, recordAnswer, recordGroupAnswer, topicProgress } from '../practice';
 import { Question, Subject } from '../subject';
 
 function q(overrides: Partial<Question> & { id: string }): Question {
@@ -95,5 +95,23 @@ describe('recordAnswer / topicProgress', () => {
     const qs = [q({ id: 'a' }), q({ id: 'b' }), q({ id: 'c', topicId: 't2' })];
     const practice = recordAnswer({}, 'a', 'got');
     assert.deepStrictEqual(topicProgress('t1', qs, practice), { done: 1, total: 2 });
+  });
+});
+
+describe('recordGroupAnswer', () => {
+  const qs = [
+    q({ id: 'old', year: 2019, repeatGroupId: 'g' }),
+    q({ id: 'new', year: 2024, repeatGroupId: 'g' }),
+    q({ id: 'solo' }),
+  ];
+
+  it('records the answer for every wording of a repeat group, so topic progress can reach 100%', () => {
+    const practice = recordGroupAnswer({}, qs[1], qs, 'got');
+    assert.deepStrictEqual(Object.keys(practice).sort(), ['new', 'old']);
+    assert.deepStrictEqual(topicProgress('t1', qs.slice(0, 2), practice), { done: 2, total: 2 });
+  });
+
+  it('records only the question itself when it is not in a repeat group', () => {
+    assert.deepStrictEqual(Object.keys(recordGroupAnswer({}, qs[2], qs, 'revise')), ['solo']);
   });
 });
