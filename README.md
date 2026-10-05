@@ -14,11 +14,11 @@ Get the Android APK from the [latest GitHub Release](https://github.com/ru-das/P
 
 | Home | Syllabus review | Paper review |
 |---|---|---|
-| _Screenshot coming_ | _Screenshot coming_ | _Screenshot coming_ |
+| <img src="docs/screenshots/home.jpg" alt="Home screen with subjects" width="240"> | <img src="docs/screenshots/syllabus-review.jpg" alt="Syllabus review screen" width="240"> | <img src="docs/screenshots/paper-review.jpg" alt="Paper review beside the page image" width="240"> |
 
 | Topic view | All questions | Practice |
 |---|---|---|
-| _Screenshot coming_ | _Screenshot coming_ | _Screenshot coming_ |
+| <img src="docs/screenshots/topic.jpg" alt="Topic view with questions sorted by marks" width="240"> | <img src="docs/screenshots/all-questions.jpg" alt="All questions with sort and filters" width="240"> | <img src="docs/screenshots/practice.jpg" alt="Practice flashcards" width="240"> |
 
 ## The problem
 
